@@ -1,0 +1,48 @@
+:root {
+  --background: #222529;
+  --surface: #2d323a;
+  --surface-elevated: #363a3f;
+  --foreground: #ffffff;
+  --foreground-muted: #b0b0b0;
+  --border: rgba(255, 255, 255, 0.08);
+
+  --accent-primary: #cef600;
+  --accent-primary-hover: #f0ff00;
+  --accent-primary-text: #1a1a1a;
+
+  --success: #10b981;
+  --frozen: #3b82f6;
+  --danger: #ef4444;
+  --danger-strong: #c53030;
+  --warning: #f59e0b;
+
+  --page-gradient: linear-gradient(to bottom, #28313a, #87939f);
+  --header-bg: #464b53;
+  --layer-modal: #2d3139;
+  --layer-input: #333b44;
+  --layer-input-alt: #252931;
+
+  /* Backward-compatible aliases to avoid breaking existing layout code */
+  --shell-bg: var(--background);
+  --ui-bg: var(--surface);
+  --ui-panel: color-mix(in srgb, var(--surface) 92%, transparent);
+  --ui-border: var(--border);
+  --ui-text: var(--foreground);
+  --ui-muted: var(--foreground-muted);
+  --accent-gold: var(--accent-primary);
+
+  --bet-small: #1e4d9c;
+  --bet-big: #9c1e1e;
+  --bet-triple: #1e6b32;
+
+  --grid-transition: 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-pill: 9999px;
+  --radius-panel: 22px;
+  --radius-card: 16px;
+  --shadow-glass: 0 20px 45px rgba(0, 0, 0, 0.28);
+  --shadow-timeline: 0 24px 40px rgba(0, 0, 0, 0.26);
+  --blur-glass: blur(8px);
+
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
