@@ -22,4 +22,15 @@ export default defineSchema({
     .index('by_user_chunk', ['userId', 'chunkIndex'])
     .index('by_user_upload', ['userId', 'uploadId'])
     .index('by_user_upload_chunk', ['userId', 'uploadId', 'chunkIndex']),
+  publishedRuntimeGrid: defineTable({
+    data: v.string(),
+    updatedAt: v.string(),
+  }),
+  publishedRuntimeGridChunks: defineTable({
+    uploadId: v.string(),
+    chunkIndex: v.number(),
+    data: v.string(),
+    updatedAt: v.string(),
+  })
+    .index('by_upload_chunk', ['uploadId', 'chunkIndex']),
 })

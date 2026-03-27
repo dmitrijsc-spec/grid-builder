@@ -30,12 +30,8 @@ function App() {
       <TopBar />
       <GameFrame>
         <div className="main-stage">
-          <div className="main-columns">
-            <aside className="stage-side-block stage-side-block--left" aria-label="Left block" />
-            <div className="grid-column">
-              <BettingGrid />
-            </div>
-            <aside className="stage-side-block stage-side-block--right" aria-label="Right block" />
+          <div className="grid-column">
+            <BettingGrid />
           </div>
         </div>
       </GameFrame>

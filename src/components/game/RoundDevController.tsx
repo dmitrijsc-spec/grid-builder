@@ -8,6 +8,7 @@ import {
   saveGridProjectsState,
 } from '../grid/builder/storage'
 import type { GridProjectsState } from '../grid/builder/types'
+import type { StreamMode } from './StreamBackground'
 
 const PHASE_OPTIONS: Array<{ value: GamePhase; label: string }> = [
   { value: 'betting', label: 'Open' },
@@ -20,31 +21,18 @@ const GRID_VIEW_STATE_OPTIONS: Array<{ value: GridViewState; label: string }> = 
   { value: 'closed', label: 'Closed' },
 ]
 
-const VIEWPORT_PRESETS = [
-  { id: 'desktop-hd', label: 'Desktop 1920x1080', width: 1920, height: 1080 },
-  { id: 'desktop-mid', label: 'Desktop 1600x900', width: 1600, height: 900 },
-  { id: 'tablet', label: 'Tablet 1024x768', width: 1024, height: 768 },
-  { id: 'mobile', label: 'Mobile 390x844', width: 390, height: 844 },
-] as const
-
-type ViewportPresetId = (typeof VIEWPORT_PRESETS)[number]['id']
-
 type RoundDevControllerProps = {
   perfVisible: boolean
   onTogglePerfVisible: () => void
-  viewportPresetId: ViewportPresetId
-  onChangeViewportPreset: (presetId: ViewportPresetId) => void
-  mobilePreviewEnabled: boolean
-  onToggleMobilePreview: () => void
+  streamMode: StreamMode
+  onChangeStreamMode: (mode: StreamMode) => void
 }
 
 export function RoundDevController({
   perfVisible,
   onTogglePerfVisible,
-  viewportPresetId,
-  onChangeViewportPreset,
-  mobilePreviewEnabled,
-  onToggleMobilePreview,
+  streamMode,
+  onChangeStreamMode,
 }: RoundDevControllerProps) {
   const { state, dispatch } = useGame()
   const [gridProjectsState, setGridProjectsState] = useState<GridProjectsState>(() =>
@@ -54,7 +42,6 @@ export function RoundDevController({
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    // Only sync on explicit publish — NOT on every localStorage save
     const sync = () => setGridProjectsState(loadGridProjectsState())
     window.addEventListener(GRID_PACKAGE_EVENT, sync as EventListener)
     return () => {
@@ -75,7 +62,6 @@ export function RoundDevController({
   }
 
   const quickSetBettingOpen = () => {
-    // "Betting Open" acts as round reset + explicit open grid state.
     dispatch({ type: 'RESET_ROUND' })
     dispatch({ type: 'SET_GRID_VIEW_STATE', gridViewState: 'open' })
   }
@@ -158,30 +144,25 @@ export function RoundDevController({
             ))}
           </select>
 
-          <label className="round-dev-controller__label" htmlFor="viewport-preset-select">
-            Resolution Preset
+          <label className="round-dev-controller__label">
+            Background
           </label>
-          <select
-            id="viewport-preset-select"
-            className="round-dev-controller__select"
-            value={viewportPresetId}
-            onChange={(e) => onChangeViewportPreset(e.target.value as ViewportPresetId)}
-          >
-            {VIEWPORT_PRESETS.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="round-dev-controller__toggle">
-            <input
-              type="checkbox"
-              checked={mobilePreviewEnabled}
-              onChange={onToggleMobilePreview}
-            />
-            <span>Mobile Preview Mode</span>
-          </label>
+          <div className="round-dev-controller__mode-toggle">
+            <button
+              type="button"
+              className={`round-dev-controller__mode-btn${streamMode === 'image' ? ' is-active' : ''}`}
+              onClick={() => onChangeStreamMode('image')}
+            >
+              Image
+            </button>
+            <button
+              type="button"
+              className={`round-dev-controller__mode-btn${streamMode === 'stream' ? ' is-active' : ''}`}
+              onClick={() => onChangeStreamMode('stream')}
+            >
+              Stream
+            </button>
+          </div>
 
           <label className="round-dev-controller__label" htmlFor="round-phase-select">
             Game State

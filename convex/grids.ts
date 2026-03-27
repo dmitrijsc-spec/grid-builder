@@ -153,3 +153,93 @@ export const saveProjectsChunk = mutation({
     return existing?._id ?? null
   },
 })
+
+const PUB_CHUNK_MARKER_PREFIX = 'pub-chunked:v1:'
+
+function parsePubChunkMarker(data: string): { uploadId: string; totalChunks: number } | null {
+  if (!data.startsWith(PUB_CHUNK_MARKER_PREFIX)) return null
+  const rest = data.slice(PUB_CHUNK_MARKER_PREFIX.length)
+  const sep = rest.lastIndexOf(':')
+  if (sep <= 0) return null
+  const uploadId = rest.slice(0, sep)
+  const total = Number.parseInt(rest.slice(sep + 1), 10)
+  if (!uploadId || !Number.isFinite(total) || total <= 0) return null
+  return { uploadId, totalChunks: total }
+}
+
+export const getPublishedRuntimeGrid = query({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db.query('publishedRuntimeGrid').order('desc').first()
+    if (!row) return null
+    const marker = parsePubChunkMarker(row.data)
+    if (!marker) return { data: row.data, updatedAt: row.updatedAt }
+    const parts: string[] = []
+    for (let i = 0; i < marker.totalChunks; i += 1) {
+      const chunk = await ctx.db
+        .query('publishedRuntimeGridChunks')
+        .withIndex('by_upload_chunk', (q) =>
+          q.eq('uploadId', marker.uploadId).eq('chunkIndex', i))
+        .first()
+      if (!chunk) break
+      parts.push(chunk.data)
+    }
+    return { data: parts.join('') || row.data, updatedAt: row.updatedAt }
+  },
+})
+
+export const publishRuntimeGrid = mutation({
+  args: { data: v.string() },
+  handler: async (ctx, { data }) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error('Not authenticated')
+    const now = new Date().toISOString()
+    const existing = await ctx.db.query('publishedRuntimeGrid').order('desc').first()
+    if (existing) {
+      await ctx.db.patch(existing._id, { data, updatedAt: now })
+    } else {
+      await ctx.db.insert('publishedRuntimeGrid', { data, updatedAt: now })
+    }
+  },
+})
+
+export const publishRuntimeGridChunk = mutation({
+  args: {
+    uploadId: v.string(),
+    chunkIndex: v.number(),
+    totalChunks: v.number(),
+    data: v.string(),
+  },
+  handler: async (ctx, { uploadId, chunkIndex, totalChunks, data }) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error('Not authenticated')
+    if (totalChunks <= 0) throw new Error('totalChunks must be > 0')
+    if (chunkIndex < 0 || chunkIndex >= totalChunks) {
+      throw new Error('chunkIndex out of range')
+    }
+    const now = new Date().toISOString()
+    const existing = await ctx.db
+      .query('publishedRuntimeGridChunks')
+      .withIndex('by_upload_chunk', (q) =>
+        q.eq('uploadId', uploadId).eq('chunkIndex', chunkIndex))
+      .first()
+    if (existing) {
+      await ctx.db.delete(existing._id)
+    }
+    await ctx.db.insert('publishedRuntimeGridChunks', {
+      uploadId,
+      chunkIndex,
+      data,
+      updatedAt: now,
+    })
+    if (chunkIndex === totalChunks - 1) {
+      const marker = `${PUB_CHUNK_MARKER_PREFIX}${uploadId}:${totalChunks}`
+      const row = await ctx.db.query('publishedRuntimeGrid').order('desc').first()
+      if (row) {
+        await ctx.db.patch(row._id, { data: marker, updatedAt: now })
+      } else {
+        await ctx.db.insert('publishedRuntimeGrid', { data: marker, updatedAt: now })
+      }
+    }
+  },
+})

@@ -1,6 +1,8 @@
 import { useBettingOpen, useGame } from '../../game/GameContext'
 import type { BetZoneId } from '../../game/types'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useQuery } from 'convex/react'
+import { api } from '../../../convex/_generated/api'
 import { createDefaultGridPackage } from './builder/defaultPackage'
 import {
   GRID_PACKAGE_BROADCAST_CHANNEL,
@@ -66,11 +68,13 @@ function pxRect(
   gridWidth: number,
   gridHeight: number,
 ): CSSProperties {
+  const safeWidth = gridWidth > 0 ? gridWidth : 1
+  const safeHeight = gridHeight > 0 ? gridHeight : 1
   return {
-    left: `${(x / gridWidth) * 100}%`,
-    top: `${(y / gridHeight) * 100}%`,
-    width: `${(w / gridWidth) * 100}%`,
-    height: `${(h / gridHeight) * 100}%`,
+    left: `${(x / safeWidth) * 100}%`,
+    top: `${(y / safeHeight) * 100}%`,
+    width: `${(w / safeWidth) * 100}%`,
+    height: `${(h / safeHeight) * 100}%`,
   }
 }
 
@@ -208,9 +212,41 @@ export function BettingGrid() {
     desktop: GridPackage | null
     mobile: GridPackage | null
   }>({ desktop: null, mobile: null })
+  const hadLocalPackageRef = useRef(false)
   const [gridPackage, setGridPackage] = useState<GridPackage>(() => {
-    return loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage()
+    const local = loadGridPackage(detectViewportMode())
+    if (local) hadLocalPackageRef.current = true
+    return local ?? createDefaultGridPackage()
   })
+
+  const publishedGridCloud = useQuery(api.grids.getPublishedRuntimeGrid)
+  const cloudAppliedRef = useRef(false)
+  useEffect(() => {
+    if (hadLocalPackageRef.current || cloudAppliedRef.current) return
+    if (!publishedGridCloud?.data) return
+    try {
+      const parsed = JSON.parse(publishedGridCloud.data) as {
+        version: number
+        desktopPkg: GridPackage | null
+        mobilePkg: GridPackage | null
+      }
+      if (parsed?.version !== 1) return
+      if (parsed.desktopPkg) {
+        latestPublishedPackagesRef.current.desktop = normalizeGridPackage(parsed.desktopPkg)
+      }
+      if (parsed.mobilePkg) {
+        latestPublishedPackagesRef.current.mobile = normalizeGridPackage(parsed.mobilePkg)
+      }
+      const selected =
+        runtimeDeviceMode === 'mobile'
+          ? parsed.mobilePkg
+          : parsed.desktopPkg
+      if (selected?.version === 1) {
+        cloudAppliedRef.current = true
+        setGridPackage(normalizeGridPackage(selected))
+      }
+    } catch { /* cloud data corrupted — stay on default */ }
+  }, [publishedGridCloud, runtimeDeviceMode])
 
   useEffect(() => {
     const pickForMode = (
@@ -237,7 +273,7 @@ export function BettingGrid() {
           ? latestPublishedPackagesRef.current.mobile
           : latestPublishedPackagesRef.current.desktop
       if (selected?.version === 1) return normalizeGridPackage(structuredClone(selected))
-      const fallbackPkg = detail?.pkg ?? null
+      const fallbackPkg = mode === 'mobile' ? null : (detail?.pkg ?? null)
       if (fallbackPkg?.version === 1) return normalizeGridPackage(structuredClone(fallbackPkg))
       return null
     }
@@ -319,6 +355,9 @@ export function BettingGrid() {
   }, [runtimeDeviceMode])
   const frameWidth = gridPackage.frame.width > 0 ? gridPackage.frame.width : GRID_SKIN.baseWidth
   const frameHeight = gridPackage.frame.height > 0 ? gridPackage.frame.height : GRID_SKIN.baseHeight
+  const isMobileRuntime = runtimeDeviceMode === 'mobile'
+  const runtimeFrameWidth = frameWidth
+  const runtimeFrameHeight = frameHeight
 
   const runtimeZones: GridZoneConfig[] = useMemo(
     () =>
@@ -385,10 +424,10 @@ export function BettingGrid() {
             activeState,
             src: visual.src,
             style: {
-              left: `${(visual.rect.x / frameWidth) * 100}%`,
-              top: `${(visual.rect.y / frameHeight) * 100}%`,
-              width: `${(visual.rect.width / frameWidth) * 100}%`,
-              height: `${(visual.rect.height / frameHeight) * 100}%`,
+              left: `${(visual.rect.x / runtimeFrameWidth) * 100}%`,
+              top: `${(visual.rect.y / runtimeFrameHeight) * 100}%`,
+              width: `${(visual.rect.width / runtimeFrameWidth) * 100}%`,
+              height: `${(visual.rect.height / runtimeFrameHeight) * 100}%`,
               ...animationStyle,
               opacity:
                 animationOpacity === undefined
@@ -399,7 +438,14 @@ export function BettingGrid() {
           }
         })
         .filter((item): item is { id: string; name: string; activeState: 'default' | 'hover'; src: string; style: CSSProperties } => item !== null),
-    [gridPackage, globalGridState, state.bets, hoveredZoneId],
+    [
+      gridPackage,
+      globalGridState,
+      state.bets,
+      hoveredZoneId,
+      runtimeFrameWidth,
+      runtimeFrameHeight,
+    ],
   )
 
   useEffect(() => {
@@ -412,20 +458,27 @@ export function BettingGrid() {
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
       ? gridPackage.frame.scale
       : GRID_SKIN.scale
-  const runtimeWidthPx = frameWidth * runtimeScale
+  const runtimeWidthPx = runtimeFrameWidth * runtimeScale
+  const runtimeWidthStyle = isMobileRuntime ? '100%' : `min(100%, ${runtimeWidthPx}px)`
   const clipRect = gridPackage.global.clipRect ?? {
     x: 0,
     y: 0,
-    width: frameWidth,
-    height: frameHeight,
+    width: runtimeFrameWidth,
+    height: runtimeFrameHeight,
   }
-  const clipTopPct = (clipRect.y / frameHeight) * 100
-  const clipRightPct = ((frameWidth - (clipRect.x + clipRect.width)) / frameWidth) * 100
-  const clipBottomPct = ((frameHeight - (clipRect.y + clipRect.height)) / frameHeight) * 100
-  const clipLeftPct = (clipRect.x / frameWidth) * 100
-  const runtimeClipPath = perspective
+  const clipTopPct = (clipRect.y / runtimeFrameHeight) * 100
+  const clipRightPct = ((runtimeFrameWidth - (clipRect.x + clipRect.width)) / runtimeFrameWidth) * 100
+  const clipBottomPct = ((runtimeFrameHeight - (clipRect.y + clipRect.height)) / runtimeFrameHeight) * 100
+  const clipLeftPct = (clipRect.x / runtimeFrameWidth) * 100
+  const runtimeClipPath = perspective && !isMobileRuntime
     ? `inset(${clipTopPct}% ${clipRightPct}% ${clipBottomPct}% ${clipLeftPct}%)`
     : 'none'
+
+  const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
+  // Mobile keeps the tilt feature, but with a slightly softer angle and no extra downscale.
+  // This reduces GPU raster blur while preserving the closed-state perspective effect.
+  const tiltAngleDeg = runtimeDeviceMode === 'mobile' ? Math.min(baseTiltAngle, 48) : baseTiltAngle
+  const tiltScale = runtimeDeviceMode === 'mobile' ? 1 : 0.97
 
   return (
     <div
@@ -433,16 +486,17 @@ export function BettingGrid() {
       data-perspective={perspective ? 'on' : 'off'}
       style={
         {
-          '--grid-tilt-angle': `${gridPackage.global?.tiltAngleDeg ?? 56}deg`,
-          width: `min(100%, ${runtimeWidthPx}px)`,
+          '--grid-tilt-angle': `${tiltAngleDeg}deg`,
+          '--grid-tilt-scale': `${tiltScale}`,
+          width: runtimeWidthStyle,
         } as CSSProperties
       }
     >
       <div
         className="betting-grid"
         style={{
-          width: `min(100%, ${runtimeWidthPx}px)`,
-          aspectRatio: `${frameWidth} / ${frameHeight}`,
+          width: runtimeWidthStyle,
+          aspectRatio: `${runtimeFrameWidth} / ${runtimeFrameHeight}`,
           height: 'auto',
           minHeight: 0,
           clipPath: runtimeClipPath,
@@ -470,7 +524,14 @@ export function BettingGrid() {
                 zone={zone}
                 className={`bet-cell--${zone.skin ?? 'default'} bet-cell--state-${visual}`}
                 style={{
-                  ...pxRect(zone.rect.x, zone.rect.y, zone.rect.w, zone.rect.h, frameWidth, frameHeight),
+                  ...pxRect(
+                    zone.rect.x,
+                    zone.rect.y,
+                    zone.rect.w,
+                    zone.rect.h,
+                    runtimeFrameWidth,
+                    runtimeFrameHeight,
+                  ),
                   background: 'transparent',
                 }}
                 isHovered={isHovered}

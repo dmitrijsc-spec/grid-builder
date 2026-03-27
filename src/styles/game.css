@@ -546,6 +546,7 @@
 
 .stream-bg__media--youtube {
   border: 0;
+  z-index: 2;
   pointer-events: none;
 }
 
@@ -571,13 +572,14 @@
 .stream-bg__overlay {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  background: radial-gradient(64.27% 77.89% at 50% 26.49%, rgba(146, 77, 0, 0) 64.8%, #270a00 100%);
+  z-index: 3;
+  background: radial-gradient(64.27% 77.89% at 50% 26.49%, rgba(146, 77, 0, 0) 64.8%, rgba(39, 10, 0, 0.55) 100%);
+  pointer-events: none;
 }
 
 .game-frame__content {
   position: relative;
-  z-index: 1;
+  z-index: 4;
   min-height: 100%;
   width: 100%;
   display: flex;
@@ -586,7 +588,7 @@
 
 .game-frame__viewport {
   position: relative;
-  z-index: 1;
+  z-index: 4;
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -805,6 +807,42 @@
   width: 16px;
   height: 16px;
   accent-color: var(--accent-primary);
+}
+
+.round-dev-controller__mode-toggle {
+  display: flex;
+  gap: 2px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.round-dev-controller__mode-btn {
+  flex: 1;
+  height: 100%;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 0 10px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.round-dev-controller__mode-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.round-dev-controller__mode-btn.is-active {
+  background: rgba(206, 246, 0, 0.15);
+  color: #cef600;
 }
 
 .round-dev-controller__link {
@@ -1147,26 +1185,10 @@
   padding-top: 84px;
 }
 
-.main-columns {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(120px, 0.85fr) minmax(0, 3fr) minmax(
-      120px,
-      0.85fr
-    );
-  gap: 10px;
-  padding: 0 12px 12px;
-  align-items: end;
-  min-height: 0;
+/* Runtime layout simplified: grid can be mounted directly in main-stage. */
+.main-stage > .grid-column {
   width: 100%;
-}
-
-.stage-side-block {
-  align-self: end;
-  min-height: 112px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  flex: 1;
 }
 
 .side-panel {
@@ -1305,7 +1327,7 @@
 }
 
 .betting-grid-shell[data-perspective='on'] .betting-grid {
-  transform: rotateX(var(--grid-tilt-angle, 56deg)) translateY(-4px) scale(0.97);
+  transform: rotateX(var(--grid-tilt-angle, 56deg)) translateY(-4px) scale(var(--grid-tilt-scale, 0.97));
 }
 
 .bet-cell {
@@ -1770,14 +1792,6 @@ button:focus-visible {
 }
 
 @media (max-width: 900px) {
-  .main-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .stage-side-block {
-    display: none;
-  }
-
   .side-panel {
     flex-direction: row;
     align-items: center;
@@ -1804,13 +1818,32 @@ button:focus-visible {
 
 @media (max-width: 600px) {
   .game-shell {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    width: 100vw;
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
     background:
       radial-gradient(76% 34% at 50% 12%, rgba(114, 56, 0, 0.78) 0%, rgba(0, 0, 0, 0) 72%),
       radial-gradient(72% 25% at 50% 100%, rgba(102, 50, 0, 0.6) 0%, rgba(0, 0, 0, 0) 80%),
       #070707;
   }
 
+  /* Mobile runtime: every grid wrapper fills viewport height */
+  .game-frame-shell,
+  .game-frame,
+  .game-frame__viewport,
+  .game-frame__viewport .game-frame__content,
+  .main-stage {
+    height: 100% !important;
+    min-height: 100% !important;
+  }
+
   .top-bar {
+    display: none !important;
+    grid-row: auto;
     grid-template-columns: 1fr;
     height: 72px;
     min-height: 72px;
@@ -1818,6 +1851,7 @@ button:focus-visible {
     padding: 4px 10px 2px;
     background: rgba(8, 8, 10, 0.98);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 20;
   }
 
   .top-bar-figma__desktop {
@@ -1933,25 +1967,103 @@ button:focus-visible {
     font-weight: 600;
   }
 
-  /* Mobile layout has no vertical gaps between header/frame/footer */
+  /* Mobile: grid fills game-frame width, bottom sits above border-radius */
   .main-stage {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
     padding-top: 0;
+    justify-content: flex-end;
+    overflow: visible;
+    position: relative;
+    box-sizing: border-box;
+    padding: 0 0 10px !important;
   }
 
   .main-columns {
-    padding: 0;
+    flex: 0 0 auto;
+    min-height: auto;
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    padding: 0 !important;
     gap: 0;
+    align-items: stretch;
+    margin: 0 auto !important;
+  }
+
+  .main-stage > .grid-column {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    position: absolute;
+    left: 50%;
+    bottom: 120px;
+    transform: translateX(-50%);
+    flex: 0 0 auto;
+    min-height: auto;
+    height: auto;
+  }
+
+  .main-stage:has(.betting-grid-shell[data-perspective='off']) > .grid-column {
+    bottom: 116px;
   }
 
   .grid-column {
+    min-height: auto;
+    height: auto;
+    max-height: none;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
     justify-content: flex-end;
-    align-items: center;
-    min-height: 0;
+    align-items: stretch;
+  }
+
+  .betting-grid-shell {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    max-height: none !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    transform: none;
+  }
+
+  .betting-grid-shell .betting-grid {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    margin-top: auto;
+  }
+
+  .betting-grid-shell[data-perspective='off'] .betting-grid {
+    width: 100% !important;
+    max-width: 100% !important;
+    transform: translateY(-13%) scale(1.7);
+    transform-origin: center bottom;
   }
 
   .game-frame-shell {
+    grid-row: 1;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
     margin: 0 1px;
     border-radius: 32px;
+    overflow: visible;
     box-shadow:
       0 0 0 1px var(--frame-ring-color, rgba(255, 255, 255, 0.08)),
       0 0 12px 1px var(--frame-glow-near, rgba(255, 255, 255, 0)),
@@ -1960,6 +2072,12 @@ button:focus-visible {
   }
 
   .game-frame {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
     border-radius: 32px;
     box-shadow: inset 0 0 80px var(--frame-inner-glow, rgba(255, 255, 255, 0.03));
   }
@@ -1984,15 +2102,60 @@ button:focus-visible {
     display: none;
   }
 
-/* Force mobile stage layout during explicit mobile preview, even on desktop width. */
-.game-frame-shell[data-mobile-preview='on'] .main-columns {
-  grid-template-columns: 1fr;
-  padding: 0;
-  gap: 0;
+.game-frame-shell[data-mobile-preview='on'] .main-stage {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding-top: 0;
+  justify-content: flex-end;
+  overflow: visible;
+  position: relative;
+  box-sizing: border-box;
+  padding: 0 0 10px !important;
 }
 
+.game-frame-shell[data-mobile-preview='on'],
+.game-frame-shell[data-mobile-preview='on'] .game-frame,
+.game-frame-shell[data-mobile-preview='on'] .game-frame__viewport,
+.game-frame-shell[data-mobile-preview='on'] .game-frame__viewport .game-frame__content,
 .game-frame-shell[data-mobile-preview='on'] .main-stage {
-  padding-top: 0;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .main-columns {
+  flex: 0 0 auto;
+  min-height: auto;
+  width: calc(100vw - 20px) !important;
+  max-width: calc(100vw - 20px) !important;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto;
+  padding: 0 !important;
+  gap: 0;
+  align-items: stretch;
+  margin: 0 auto !important;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .main-stage > .grid-column {
+  width: calc(100vw - 20px) !important;
+  max-width: calc(100vw - 20px) !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  margin: 0 !important;
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  flex: 0 0 auto;
+  min-height: auto;
+  height: auto;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .main-stage:has(.betting-grid-shell[data-perspective='off']) > .grid-column {
+  bottom: 116px;
 }
 
 .game-frame-shell[data-mobile-preview='on'] .stage-side-block {
@@ -2000,9 +2163,48 @@ button:focus-visible {
 }
 
 .game-frame-shell[data-mobile-preview='on'] .grid-column {
+  min-height: auto;
+  height: auto;
+  max-height: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   justify-content: flex-end;
-  align-items: center;
-  min-height: 0;
+  align-items: stretch;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  max-height: none !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  transform: none;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell .betting-grid {
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  margin-top: auto;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'] .betting-grid {
+  width: 100% !important;
+  max-width: 100% !important;
+  transform: translateY(-13%) scale(1.7);
+  transform-origin: center bottom;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'] {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
 }
 
 .game-frame-shell[data-mobile-preview='on'] .game-frame__viewport {
@@ -2010,13 +2212,11 @@ button:focus-visible {
   overflow: auto;
 }
 
-.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell {
-  margin-bottom: 0;
-  transform: none;
-}
-
-.game-frame-shell[data-mobile-preview='on'] .betting-grid {
-  width: auto;
+.game-frame-shell[data-mobile-preview='on'] .game-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
 }
 
 .game-frame-shell[data-mobile-preview='on'] .betting-grid,
@@ -2026,19 +2226,21 @@ button:focus-visible {
   filter: none;
 }
 
-  /* Keep grid geometry identical to desktop. */
   .betting-grid-shell {
     perspective: 1200px;
     perspective-origin: 50% 35%;
-    width: auto;
-    max-width: none;
-    margin-inline: auto;
-    margin-bottom: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
     transform: none;
   }
 
   .betting-grid {
-    width: auto;
+    width: 100% !important;
+    max-width: 100% !important;
+    transform-style: preserve-3d;
+    will-change: transform;
   }
 
   .betting-grid,
@@ -2048,7 +2250,37 @@ button:focus-visible {
     filter: none;
   }
 
+  .betting-grid__asset-layer {
+    transform: translateZ(0.1px);
+  }
+
+  .betting-grid__asset {
+    image-rendering: auto;
+    transform: translateZ(0.1px);
+    will-change: transform, opacity;
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid {
+    transform: rotateX(var(--grid-tilt-angle, 48deg)) translateY(-13%) scale(1.53) !important;
+    transform-origin: center bottom;
+  }
+
+  .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
+    transform: rotateX(var(--grid-tilt-angle, 48deg)) translateY(-13%) scale(1.53) !important;
+    transform-origin: center bottom;
+  }
+
+  .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {
+    bottom: 128px;
+  }
+
+  .game-frame-shell[data-mobile-preview='on'] .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {
+    bottom: 128px;
+  }
+
   .bottom-bar {
+    display: none !important;
+    grid-row: auto;
     grid-template-columns: 1fr;
     height: 64px;
     min-height: 64px;
@@ -2056,6 +2288,7 @@ button:focus-visible {
     padding: 8px 0;
     background: rgba(10, 10, 12, 0.98);
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 20;
   }
 
   .bottom-bar-figma__desktop {

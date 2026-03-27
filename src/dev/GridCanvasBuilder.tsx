@@ -1,8 +1,9 @@
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { createDefaultGridPackage, createEmptyGridPackage } from '../components/grid/builder/defaultPackage'
-import { loadGridProjectsState, publishGridProjectsState, saveGridProjectsState, saveGridProjectsStateNow, touchInMemoryState } from '../components/grid/builder/storage'
+import { loadGridProjectsState, publishGridProjectsState, saveGridProjectsState, saveGridProjectsStateNow, selectProjectPackage, touchInMemoryState } from '../components/grid/builder/storage'
 import { useConvexGridSync } from '../hooks/useConvexGridSync'
+import { usePublishRuntimeGrid } from '../hooks/usePublishRuntimeGrid'
 import { ProfileButton } from '../auth/ProfileButton'
 import type { BetZoneId } from '../game/types'
 import type { GridLayer, GridPackage, GridProject, GridProjectsState, GridVisualState } from '../components/grid/builder/types'
@@ -565,6 +566,7 @@ export function GridCanvasBuilder() {
     setProjectsState(loaded)
     projectsStateRef.current = loaded
   }, { autoSync: false })
+  const publishRuntimeGridToCloud = usePublishRuntimeGrid()
   const activeProject = useMemo(
     () =>
       projectsState.projects.find(
@@ -886,14 +888,18 @@ export function GridCanvasBuilder() {
     try {
       const runtimeFingerprint = getRuntimePackageFingerprint(projectsState, deviceModeRef.current)
       const shouldPublishToRuntime = runtimeFingerprint !== lastRuntimePublishFingerprintRef.current
-      // Explicit "Update Game" must persist immediately so refresh never restores stale mobile grid.
       saveGridProjectsStateNow(projectsState)
       if (shouldPublishToRuntime) {
         publishGridProjectsState(projectsState, deviceModeRef.current)
         lastRuntimePublishFingerprintRef.current = runtimeFingerprint
       }
-      // Cloud save is awaited to guarantee cross-device availability after Update Game.
-      await saveToCloudNow()
+      const active = projectsState.projects.find((p) => p.id === projectsState.activeProjectId)
+      const desktopPkg = selectProjectPackage(active, 'desktop')
+      const mobilePkg = selectProjectPackage(active, 'mobile')
+      await Promise.all([
+        saveToCloudNow(),
+        publishRuntimeGridToCloud(desktopPkg, mobilePkg),
+      ])
       setUpdateRuntimeStatus('success')
     } catch {
       setUpdateRuntimeStatus('error')

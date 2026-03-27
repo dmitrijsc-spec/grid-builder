@@ -80,12 +80,8 @@ export function GridRuntimeComparePage() {
           <div className={`game-frame__viewport ${mode === 'mobile' ? 'is-mobile' : 'is-desktop'}`}>
             <div className="game-frame__content">
               <div className="main-stage">
-                <div className="main-columns">
-                  <aside className="stage-side-block stage-side-block--left" aria-hidden />
-                  <div className="grid-column">
-                    <BettingGrid />
-                  </div>
-                  <aside className="stage-side-block stage-side-block--right" aria-hidden />
+                <div className="grid-column">
+                  <BettingGrid />
                 </div>
               </div>
             </div>
