@@ -642,6 +642,13 @@
   height: 12px;
   overflow: visible;
   display: block;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+.top-bar-figma__logo-wrap:hover {
+  opacity: 0.75;
 }
 
 .top-bar-figma__logo {

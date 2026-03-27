@@ -11,12 +11,13 @@ import { LoginPage } from './auth/LoginPage'
 function App() {
   const { isAuthenticated, isLoading } = useConvexAuth()
 
+  if (isLoading) return <div className="auth-loading" />
+  if (!isAuthenticated) return <LoginPage />
+
   if (typeof window !== 'undefined' && window.location.pathname === '/dev/grid-editor') {
     return <GridZoneEditor />
   }
   if (typeof window !== 'undefined' && window.location.pathname === '/dev/grid-builder') {
-    if (isLoading) return <div className="auth-loading" />
-    if (!isAuthenticated) return <LoginPage />
     return <GridCanvasBuilder />
   }
 

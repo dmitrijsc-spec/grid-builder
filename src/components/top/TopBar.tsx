@@ -79,10 +79,17 @@ export function TopBar() {
         </span>
       </div>
 
-      <div className="top-bar-figma__center" aria-hidden>
-        <span className="top-bar-figma__logo-wrap">
-          <img src={LOGO_SRC} alt="" className="top-bar-figma__logo" />
-        </span>
+      <div className="top-bar-figma__center">
+        <a
+          href="/dev/grid-builder"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="top-bar-figma__logo-wrap"
+          aria-label="Open Grid Builder"
+          title="Open Grid Builder"
+        >
+          <img src={LOGO_SRC} alt="CRYSTAL" className="top-bar-figma__logo" />
+        </a>
       </div>
 
       <div className="top-bar-figma__right">
