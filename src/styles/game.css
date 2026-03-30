@@ -1398,18 +1398,16 @@
   image-rendering: auto;
 }
 
-/* iOS WebKit: disable layer transitions (avoid extra compositor work); keep smooth image scaling.
-   Avoid -webkit-optimize-contrast here — it makes upscaled grid/raster layers look blocky/pixelated. */
+/* iOS WebKit: keep smooth image scaling; do not force transition:none on assets — that kills builder layer presets.
+   Avoid -webkit-optimize-contrast — it makes upscaled layers look blocky. */
 @supports (-webkit-touch-callout: none) {
   .betting-grid__asset-layer {
-    transition: none !important;
     will-change: auto !important;
   }
 
   .betting-grid__asset,
   .betting-grid__atlas,
   .betting-grid__canvas {
-    transition: none !important;
     will-change: auto !important;
     image-rendering: auto !important;
     -webkit-backface-visibility: hidden;
@@ -1437,8 +1435,9 @@
 .betting-grid-shell[data-perspective='on'] .betting-grid {
   transform-style: preserve-3d;
   will-change: transform;
-  transform: translateZ(0) rotateX(var(--grid-tilt-angle, 56deg)) translateY(0)
-    scale(var(--grid-tilt-scale, 0.97));
+  /* Same transform list for open (0deg / scale 1) and closed so transition interpolates smoothly. */
+  transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
+    scale(var(--grid-tilt-scale, 1));
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
@@ -2400,12 +2399,14 @@ button:focus-visible {
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
     transform-style: preserve-3d;
-    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
+    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
+      scale(var(--grid-tilt-scale, 1)) !important;
     transform-origin: center bottom;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
-    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
+    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
+      scale(var(--grid-tilt-scale, 1)) !important;
     transform-origin: center bottom;
   }
 

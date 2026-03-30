@@ -523,8 +523,11 @@ export function BettingGrid() {
     /iP(hone|ad|od)/i.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1)
   )
-  const perspective =
-    isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
+  const closedMode = gridPackage.global?.closedMode ?? 'tilted'
+  const usePerspectiveShell = closedMode === 'tilted'
+  // Keep 3D shell on for the whole session when the package uses tilt-when-closed so `perspective` does not
+  // pop in/out with phase (that snaps and fights transform interpolation). Animate only CSS vars on `.betting-grid`.
+  const perspective = usePerspectiveShell
   // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
@@ -562,11 +565,11 @@ export function BettingGrid() {
     allowIOSCanvasFallback
     && isIOSWebKit
     && !useMobileAtlasRendering
-    && !perspective
+    && !usePerspectiveShell
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
-  const tiltAngleDeg = baseTiltAngle
-  const tiltScale = 0.97
+  const tiltAngleDeg = usePerspectiveShell ? (isClosed ? baseTiltAngle : 0) : 0
+  const tiltScale = usePerspectiveShell ? (isClosed ? 0.97 : 1) : 1
 
   useEffect(() => {
     if (!useIOSCanvasRendering) return
