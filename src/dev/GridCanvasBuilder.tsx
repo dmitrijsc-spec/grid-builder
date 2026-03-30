@@ -5,6 +5,7 @@ import {
   buildRuntimeAtlasForPackageWithFallback,
   loadGridProjectsState,
   mirrorExistingRuntimeSnapshotToDevServer,
+  publishGridProjectsState,
   publishRuntimePackages,
   saveGridProjectsState,
   saveGridProjectsStateNow,
@@ -582,6 +583,9 @@ export function GridCanvasBuilder() {
       setProjectsState(loaded)
       projectsStateRef.current = loaded
       touchInMemoryState(loaded)
+      // Game reads runtime snapshot first; cloud sync only updates projects. Refresh runtime so
+      // the game matches builder without redoing Update Game on this device.
+      publishGridProjectsState(loaded)
     },
     { autoSync: true },
   )

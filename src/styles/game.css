@@ -1288,6 +1288,7 @@
 .betting-grid {
   position: relative;
   z-index: 2;
+  /* Flat off-tilt; preserve-3d when tilted — matches builder `.grid-builder__canvas`. */
   transform-style: flat;
   transition: transform var(--grid-transition);
   will-change: transform;
@@ -1312,7 +1313,6 @@
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  contain: layout;
 }
 
 .betting-grid__canvas {
@@ -1337,8 +1337,8 @@
   object-fit: fill;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
+  /* High-res atlas from builder + smooth scaling (avoid crisp-edges “pixel/block” look). */
+  image-rendering: auto;
 }
 
 .betting-grid__composite {
@@ -1352,8 +1352,7 @@
   object-fit: fill;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
+  image-rendering: auto;
 }
 
 .betting-grid__atlas-placeholder {
@@ -1390,24 +1389,18 @@
   user-select: none;
   -webkit-user-drag: none;
   backface-visibility: hidden;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
+  /* Match builder `.grid-builder__layer-preview` (browser default = smooth vectors). */
+  image-rendering: auto;
 }
 
-/* iOS: avoid transition jank on layers; keep crisp raster hints for tilted / atlas paths. */
+/* iOS: only disable transitions on layers (child translateZ can rasterize SVGs at wrong res). */
 @supports (-webkit-touch-callout: none) {
   .betting-grid__asset-layer,
   .betting-grid__asset,
   .betting-grid__atlas {
     transition: none !important;
     will-change: auto !important;
-  }
-
-  .betting-grid-shell[data-perspective='on'] .betting-grid__asset,
-  .betting-grid-shell[data-perspective='on'] .betting-grid__atlas {
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    image-rendering: -webkit-optimize-contrast;
+    image-rendering: auto !important;
   }
 }
 
@@ -1428,6 +1421,7 @@
 }
 
 .betting-grid-shell[data-perspective='on'] .betting-grid {
+  transform-style: preserve-3d;
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 56deg)) translateY(0)
     scale(var(--grid-tilt-scale, 0.97));
   -webkit-backface-visibility: hidden;
@@ -2373,8 +2367,7 @@ button:focus-visible {
   }
 
   .betting-grid__asset {
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
+    image-rendering: auto;
     transform: none;
     will-change: auto;
     backface-visibility: hidden;
@@ -2382,6 +2375,7 @@ button:focus-visible {
   }
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
+    transform-style: preserve-3d;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
     transform-origin: center bottom;
   }

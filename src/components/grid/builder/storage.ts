@@ -722,16 +722,23 @@ export function saveGridPackage(pkg: GridPackage): void {
 
 export function loadGridPackage(deviceMode?: RuntimeDeviceMode): GridPackage | null {
   const runtimeMode = deviceMode ?? detectRuntimeDeviceMode()
-  // Prefer latest explicitly published runtime snapshot.
+  const projectsState = loadGridProjectsState()
+  const projectsScore = getProjectsStateFreshnessScore(projectsState)
+
+  // Prefer a published runtime snapshot only when it is at least as fresh as builder projects.
+  // Otherwise an older local/room snapshot beats cloud-synced projects on a new device/session.
   const runtimeSnapshot = loadRuntimePackagesSnapshot()
   if (runtimeSnapshot) {
+    const snapTs = Date.parse(runtimeSnapshot.updatedAt ?? '')
+    const snapshotFresh = Number.isFinite(snapTs) ? snapTs : 0
     const fromSnapshot = runtimeMode === 'mobile'
       ? (runtimeSnapshot.mobilePkg ?? runtimeSnapshot.desktopPkg)
       : runtimeSnapshot.desktopPkg
-    if (fromSnapshot) return fromSnapshot
+    if (fromSnapshot && snapshotFresh >= projectsScore) {
+      return fromSnapshot
+    }
   }
 
-  const projectsState = loadGridProjectsState()
   const active = projectsState.projects.find(
     (project) => project.id === projectsState.activeProjectId,
   )

@@ -558,10 +558,11 @@ export function BettingGrid() {
   )
   // Quality-first: disable perspective on mobile to avoid GPU raster blur on vector layers.
   const perspective = !isMobileRuntime && isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
+  // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
-    (typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
+    typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
       ? gridPackage.frame.scale
-      : GRID_SKIN.scale) * 1.15
+      : GRID_SKIN.scale
   const runtimeWidthPx = runtimeFrameWidth * runtimeScale
   const runtimeWidthStyle = `${runtimeWidthPx}px`
   const runtimeClipPath = 'none'
