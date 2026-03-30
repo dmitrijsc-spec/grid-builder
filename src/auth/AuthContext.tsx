@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signIn = useCallback(async (email: string, password: string) => {
-    if (!supabase) throw new Error('Supabase не настроен')
+    if (!supabase) throw new Error('Supabase is not configured')
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (error) throw error
   }, [])

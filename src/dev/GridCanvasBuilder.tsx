@@ -2322,10 +2322,10 @@ export function GridCanvasBuilder() {
               cloudSyncStatus === 'error' ? 'error' : cloudSyncStatus === 'saving' ? 'saving' : 'saved'
             }`}
           >
-            {cloudSyncStatus === 'saving' && (isSupabaseAuthEnabled() ? 'Аккаунт: сохранение…' : 'Сохранение…')}
-            {cloudSyncStatus === 'error' && 'Аккаунт: ошибка записи'}
+            {cloudSyncStatus === 'saving' && (isSupabaseAuthEnabled() ? 'Account: saving…' : 'Saving…')}
+            {cloudSyncStatus === 'error' && 'Account: save failed'}
             {cloudSyncStatus === 'saved' &&
-              (isSupabaseAuthEnabled() ? 'Проекты: Supabase' : 'Только локально')}
+              (isSupabaseAuthEnabled() ? 'Projects: Supabase' : 'Local only')}
           </div>
           {isSupabaseGridCloudConfigured() ? (
             <div className="grid-builder__cloud-share">

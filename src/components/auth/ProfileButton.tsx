@@ -25,7 +25,7 @@ export function ProfileButton() {
       <button
         type="button"
         className="profile-btn"
-        aria-label="Профиль"
+        aria-label="Profile"
         title={user.email}
         onClick={() => setOpen((v) => !v)}
       >
@@ -36,7 +36,7 @@ export function ProfileButton() {
           <div className="profile-backdrop" aria-hidden onClick={() => setOpen(false)} />
           <div className="profile-dropdown" role="menu">
             <div className="profile-dropdown__info">
-              <p className="profile-dropdown__name">Аккаунт</p>
+              <p className="profile-dropdown__name">Account</p>
               <p className="profile-dropdown__email">{user.email}</p>
             </div>
             <hr className="profile-dropdown__hr" />
@@ -48,7 +48,7 @@ export function ProfileButton() {
                 void signOut()
               }}
             >
-              Выйти
+              Sign out
             </button>
           </div>
         </>

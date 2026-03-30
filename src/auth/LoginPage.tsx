@@ -15,7 +15,7 @@ export function LoginPage() {
     try {
       await signIn(email, password)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка входа')
+      setError(err instanceof Error ? err.message : 'Sign-in failed')
     } finally {
       setBusy(false)
     }
@@ -33,9 +33,9 @@ export function LoginPage() {
               <path d="M8 12h8M12 8v8" stroke="rgba(206,246,0,0.9)" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </div>
-          <h1 className="login-title">Вход</h1>
+          <h1 className="login-title">Sign in</h1>
           <p className="login-subtitle">
-            Аккаунт выдаётся в Supabase (Authentication → Users). Самостоятельная регистрация отключена.
+            Accounts are created in Supabase (Authentication → Users). Self-service sign-up is disabled.
           </p>
           <form className="login-form" onSubmit={(e) => void onSubmit(e)}>
             <div className="login-field">
@@ -51,7 +51,7 @@ export function LoginPage() {
               />
             </div>
             <div className="login-field">
-              <label htmlFor="login-password">Пароль</label>
+              <label htmlFor="login-password">Password</label>
               <input
                 id="login-password"
                 name="password"
@@ -64,10 +64,10 @@ export function LoginPage() {
             </div>
             {error ? <p className="login-error">{error}</p> : null}
             <button type="submit" className="login-submit" disabled={busy}>
-              {busy ? 'Вход…' : 'Войти'}
+              {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-          <p className="login-hint">Нет доступа — попросите администратора создать пользователя в панели Supabase.</p>
+          <p className="login-hint">Need access? Ask an admin to create a user in the Supabase dashboard.</p>
         </div>
       </div>
     </div>

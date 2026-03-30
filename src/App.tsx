@@ -35,7 +35,7 @@ function App() {
     if (loading) {
       return (
         <div className="auth-loading" style={{ display: 'grid', placeItems: 'center', color: '#e8eef8' }}>
-          Загрузка…
+          Loading…
         </div>
       )
     }

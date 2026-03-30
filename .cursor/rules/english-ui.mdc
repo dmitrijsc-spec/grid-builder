@@ -1,0 +1,12 @@
+---
+description: English-only user-facing copy and documentation
+globs: "**/*.{tsx,ts,jsx,js,md,css,html}"
+alwaysApply: true
+---
+
+# English-only UI and project copy
+
+- **User-visible strings** in the app (labels, buttons, errors, aria-labels, tooltips, placeholders, toasts) must be **English**.
+- **Developer-facing comments** in code may stay concise English; avoid mixing Russian or other languages in UI-adjacent strings.
+- **README / setup docs** for this repo: **English** unless the user explicitly requests another language for a specific document.
+- When adding or editing copy, prefer clear, short product English over literal translation.
