@@ -17,9 +17,13 @@ import {
   isSupabaseGridCloudConfigured,
   supabasePullGridRuntimePayload,
 } from '../../services/gridCloudSupabase'
+import { layerAnimationStyle } from './builder/layerAnimation'
 import type { GridGameViewState, GridPackage, GridVisualState } from './builder/types'
 import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
+
+/** iOS: PNG atlas skips per-layer SVG `<img>` rasterization; allow atlas only when layer count exceeds this (`?mobileAtlas=1` still required). */
+const MOBILE_ATLAS_IOS_MIN_LAYER_COUNT = 50
 
 function BetCell({
   zone,
@@ -150,95 +154,6 @@ function resolveLayerVisual(
     visible: fallbackStyle.visible,
     rect,
   }
-}
-
-function animationStyleFromPreset(
-  animation: NonNullable<GridPackage['layers'][number]['animation']>,
-  activeFactor: number,
-): CSSProperties {
-  if (animation.preset === 'none') return {}
-  const intensity = Math.max(0, Math.min(3, animation.intensity ?? 1))
-  let transform = ''
-  let extraOpacity: number | undefined
-
-  if (animation.preset === 'fade') {
-    extraOpacity = activeFactor === 0 ? 1 : Math.max(0.1, 1 - 0.35 * intensity)
-  } else if (animation.preset === 'zoom-in') {
-    transform = `scale(${1 + 0.06 * intensity * activeFactor})`
-  } else if (animation.preset === 'zoom-out') {
-    transform = `scale(${1 - 0.06 * intensity * activeFactor})`
-  } else if (animation.preset === 'from-left') {
-    transform = `translateX(${8 * intensity * activeFactor}px)`
-  } else if (animation.preset === 'from-top') {
-    transform = `translateY(${-8 * intensity * activeFactor}px)`
-  }
-
-  return {
-    transform,
-    transition: `transform ${animation.durationMs}ms ${animation.easing} ${animation.delayMs}ms, opacity ${animation.durationMs}ms ${animation.easing} ${animation.delayMs}ms`,
-    opacity: extraOpacity,
-    transformOrigin: 'center center',
-    willChange: 'transform, opacity',
-  }
-}
-
-function gridScopeActiveFactor(
-  gridState: GridGameViewState,
-  toGridState: GridGameViewState | 'any' | undefined,
-): number {
-  const to = toGridState ?? 'any'
-  if (to === 'any') {
-    return gridState === 'closed' ? 1 : 0
-  }
-  return gridState === to ? 1 : 0
-}
-
-function layerAnimationStyle(
-  layer: GridPackage['layers'][number],
-  prevElementState: GridVisualState,
-  elementState: GridVisualState,
-  prevGridState: GridGameViewState,
-  gridState: GridGameViewState,
-): CSSProperties {
-  const animation = layer.animation ?? {
-    scope: 'element-state',
-    preset: 'none',
-    trigger: 'while-active',
-    fromState: 'any',
-    toState: 'any',
-    fromGridState: 'any',
-    toGridState: 'any',
-    durationMs: 220,
-    delayMs: 0,
-    easing: 'ease-out',
-    intensity: 1,
-  }
-  if (animation.preset === 'none') return {}
-
-  const scope = animation.scope === 'grid-state' ? 'grid-state' : 'element-state'
-
-  if (scope === 'grid-state') {
-    const fromG = animation.fromGridState ?? 'any'
-    const toG = animation.toGridState ?? 'any'
-    const fromMatches = fromG === 'any' || fromG === prevGridState
-    const toMatches = toG === 'any' || toG === gridState
-    const transitionChanged = prevGridState !== gridState
-    if (!toMatches) return {}
-    if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
-
-    const activeFactor = gridScopeActiveFactor(gridState, toG)
-    return animationStyleFromPreset(animation, activeFactor)
-  }
-
-  const fromMatches = animation.fromState === 'any' || animation.fromState === prevElementState
-  const toMatches = animation.toState === 'any' || animation.toState === elementState
-  const transitionChanged = prevElementState !== elementState
-
-  if (!toMatches) return {}
-  if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
-
-  const activeFactor = elementState === 'default' ? 0 : 1
-  return animationStyleFromPreset(animation, activeFactor)
 }
 
 export function BettingGrid() {
@@ -608,8 +523,8 @@ export function BettingGrid() {
     /iP(hone|ad|od)/i.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1)
   )
-  // Quality-first: disable perspective on mobile to avoid GPU raster blur on vector layers.
-  const perspective = !isMobileRuntime && isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
+  const perspective =
+    isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
   // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
@@ -629,21 +544,25 @@ export function BettingGrid() {
     gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
     ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
     ?? null
-  // Mobile default: vector-friendly `<img>` stack (SVG stays sharp at any DPR/zoom).
-  // Single PNG atlas only when `?mobileAtlas=1` (higher-res atlas is baked in the builder).
+  const layerCount = gridPackage.layers.length
+  const mobileAtlasOkOnIOS =
+    !isIOSWebKit || layerCount > MOBILE_ATLAS_IOS_MIN_LAYER_COUNT
+  // Mobile: default is vector `<img>` stack. PNG atlas only with `?mobileAtlas=1` and published atlas.
+  // iOS WebKit: same, unless layer count is high (atlas reduces many DOM images / decode pressure).
   const useMobileAtlasRendering =
     isMobileRuntime
     && Boolean(publishedMobileAtlasSrc)
     && allowMobileAtlas
-  // iOS: single canvas compositor by default (`iosCanvas=0` to force `<img>` stack).
+    && mobileAtlasOkOnIOS
+  // iOS: canvas compositor by default (DPR-sized backing store). `?iosCanvas=0` forces `<img>` stack (max SVG sharpness).
   const allowIOSCanvasFallback =
     typeof window !== 'undefined'
     && (iosCanvasParam === '1' || (isIOSWebKit && iosCanvasParam !== '0'))
   const useIOSCanvasRendering = allowIOSCanvasFallback && isIOSWebKit && !useMobileAtlasRendering
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
-  const tiltAngleDeg = isMobileRuntime ? 0 : baseTiltAngle
-  const tiltScale = isMobileRuntime ? 1 : 0.97
+  const tiltAngleDeg = baseTiltAngle
+  const tiltScale = 0.97
 
   useEffect(() => {
     if (!useIOSCanvasRendering) return

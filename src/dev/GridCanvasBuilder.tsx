@@ -17,7 +17,19 @@ import { useSupabaseGridSync } from '../hooks/useSupabaseGridSync'
 import { isSupabaseAuthEnabled } from '../lib/supabaseClient'
 import { pushRuntimeSnapshotToSupabaseFromBrowser } from '../services/gridCloudSupabase'
 import type { BetZoneId } from '../game/types'
-import type { GridLayer, GridPackage, GridProject, GridProjectsState, GridVisualState } from '../components/grid/builder/types'
+import {
+  builderPreviewFrameStyle,
+  resolvePreviewElementEndpoints,
+  resolvePreviewGridEndpoints,
+} from '../components/grid/builder/layerAnimation'
+import type {
+  GridGameViewState,
+  GridLayer,
+  GridPackage,
+  GridProject,
+  GridProjectsState,
+  GridVisualState,
+} from '../components/grid/builder/types'
 
 const STATES: GridVisualState[] = ['default', 'hover', 'active', 'chipPlaced', 'disabled', 'locked']
 type DragMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se'
@@ -289,15 +301,40 @@ type CanvasLayerProps = {
   height: number
   opacity: number
   zIndex: number
+  animationStyle?: CSSProperties
 }
-const CanvasLayer = memo(function CanvasLayer({ layerId, src, alt, left, top, width, height, opacity, zIndex }: CanvasLayerProps) {
+const CanvasLayer = memo(function CanvasLayer({
+  layerId,
+  src,
+  alt,
+  left,
+  top,
+  width,
+  height,
+  opacity,
+  zIndex,
+  animationStyle,
+}: CanvasLayerProps) {
+  const o =
+    animationStyle?.opacity !== undefined && typeof animationStyle.opacity === 'number'
+      ? opacity * animationStyle.opacity
+      : opacity
+  const style = {
+    left,
+    top,
+    width,
+    height,
+    zIndex,
+    ...animationStyle,
+    opacity: o,
+  } as CSSProperties
   return (
     <img
       data-layer-id={layerId}
       className="grid-builder__layer-preview"
       src={src}
       alt={alt}
-      style={{ left, top, width, height, opacity, zIndex } as CSSProperties}
+      style={style}
     />
   )
 })
@@ -608,6 +645,17 @@ export function GridCanvasBuilder() {
   const [layerEditStates, setLayerEditStates] = useState<Record<string, GridVisualState>>({})
   const editStateKey: GridVisualState = layerEditStates[selectedLayerId] ?? 'default'
   const [gridViewState, setGridViewState] = useState<'open' | 'closed'>('open')
+  type AnimationPreview = {
+    layerId: string
+    phase: 0 | 1
+    scope: 'element-state' | 'grid-state'
+    elementFrom: GridVisualState
+    elementTo: GridVisualState
+    gridFrom: GridGameViewState
+    gridTo: GridGameViewState
+  }
+  const [animationPreview, setAnimationPreview] = useState<AnimationPreview | null>(null)
+  const animationPreviewClearRef = useRef<number | null>(null)
   const [rulersEnabled, setRulersEnabled] = useState(true)
   const preserveSvgCoordinates = true
   const [viewportWidth, setViewportWidth] = useState<number>(
@@ -706,23 +754,114 @@ export function GridCanvasBuilder() {
     [pkg.layers],
   )
   // visibleLayers maps sorted layers with src/rect per state — reuses sortedLayers (no double sort)
-  const visibleLayers = useMemo(
-    () =>
-      sortedLayers.map((layer) => {
-        // Each layer independently previews its own state — not a global state.
-        const stateKey: GridVisualState = layerEditStates[layer.id] ?? 'default'
-        const src =
-          stateKey === 'default'
-            ? layer.src
-            : layer.stateSvgs?.[stateKey] ?? layer.src
-        const rect =
-          stateKey === 'default'
-            ? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
-            : layer.stateRects?.[stateKey] ?? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
-        return { layer, src, rect, stateKey }
-      }),
-    [sortedLayers, layerEditStates],
-  )
+  const visibleLayers = useMemo(() => {
+    const gridVis: 'open' | 'closed' =
+      animationPreview?.scope === 'grid-state'
+        ? (animationPreview.phase === 0 ? animationPreview.gridFrom : animationPreview.gridTo)
+        : gridViewState
+    return sortedLayers.map((layer) => {
+      let stateKey: GridVisualState
+      if (animationPreview?.layerId === layer.id && animationPreview.scope === 'element-state') {
+        stateKey = animationPreview.phase === 0 ? animationPreview.elementFrom : animationPreview.elementTo
+      } else {
+        stateKey = layerEditStates[layer.id] ?? 'default'
+      }
+      const src =
+        stateKey === 'default'
+          ? layer.src
+          : layer.stateSvgs?.[stateKey] ?? layer.src
+      const rect =
+        stateKey === 'default'
+          ? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
+          : layer.stateRects?.[stateKey] ?? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
+      return { layer, src, rect, stateKey, gridVis }
+    })
+  }, [sortedLayers, layerEditStates, gridViewState, animationPreview])
+
+  useEffect(() => {
+    if (!animationPreview || animationPreview.phase !== 0) return
+    let cancelled = false
+    let innerRaf = 0
+    const outerRaf = requestAnimationFrame(() => {
+      innerRaf = requestAnimationFrame(() => {
+        if (cancelled) return
+        setAnimationPreview((p) => (p && p.phase === 0 ? { ...p, phase: 1 } : p))
+      })
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(outerRaf)
+      if (innerRaf) cancelAnimationFrame(innerRaf)
+    }
+  }, [animationPreview])
+
+  useEffect(() => {
+    if (!animationPreview || animationPreview.phase !== 1) return
+    const layer = pkg.layers.find((l) => l.id === animationPreview.layerId)
+    const anim = layer?.animation
+    const ms = (anim?.durationMs ?? 220) + (anim?.delayMs ?? 0) + 120
+    animationPreviewClearRef.current = window.setTimeout(() => {
+      setAnimationPreview(null)
+      animationPreviewClearRef.current = null
+    }, ms)
+    return () => {
+      if (animationPreviewClearRef.current !== null) {
+        window.clearTimeout(animationPreviewClearRef.current)
+        animationPreviewClearRef.current = null
+      }
+    }
+  }, [animationPreview, pkg.layers])
+
+  const runAnimationPreview = useCallback(() => {
+    if (!selectedLayer) return
+    const layerId = selectedLayer.id
+    const anim = selectedLayer.animation ?? {
+      scope: 'element-state' as const,
+      preset: 'none' as const,
+      trigger: 'while-active' as const,
+      fromState: 'any' as const,
+      toState: 'any' as const,
+      fromGridState: 'any' as const,
+      toGridState: 'any' as const,
+      durationMs: 220,
+      delayMs: 0,
+      easing: 'ease-out' as const,
+      intensity: 1,
+    }
+    if (anim.preset === 'none') return
+    if (animationPreviewClearRef.current !== null) {
+      window.clearTimeout(animationPreviewClearRef.current)
+      animationPreviewClearRef.current = null
+    }
+    setAnimationPreview(null)
+    const scope = anim.scope === 'grid-state' ? 'grid-state' : 'element-state'
+    const elKey = layerEditStates[layerId] ?? 'default'
+    requestAnimationFrame(() => {
+      if (scope === 'element-state') {
+        const { from, to } = resolvePreviewElementEndpoints(anim)
+        setAnimationPreview({
+          layerId,
+          phase: 0,
+          scope: 'element-state',
+          elementFrom: from,
+          elementTo: to,
+          gridFrom: gridViewState,
+          gridTo: gridViewState,
+        })
+      } else {
+        const { from, to } = resolvePreviewGridEndpoints(anim)
+        setAnimationPreview({
+          layerId,
+          phase: 0,
+          scope: 'grid-state',
+          elementFrom: elKey,
+          elementTo: elKey,
+          gridFrom: from,
+          gridTo: to,
+        })
+      }
+    })
+  }, [selectedLayer, layerEditStates, gridViewState])
 
   const editStateStyle = selectedLayer?.stateStyles[editStateKey]
   const selectedAnimation = selectedLayer?.animation ?? {
@@ -2815,29 +2954,51 @@ export function GridCanvasBuilder() {
               >
                 <span className="grid-builder__clip-rect-label">Clip zone</span>
               </div>
-              {visibleLayers.map(({ layer, src, rect, stateKey }) => {
-                // stateKey is per-layer — each layer renders its own preview state independently.
+              {visibleLayers.map(({ layer, src, rect, stateKey, gridVis }) => {
                 const styleByState = layer.stateStyles[stateKey]
-                  const globalVisible =
-                    gridViewState === 'open'
-                      ? (layer.globalVisibility?.open ?? true)
-                      : (layer.globalVisibility?.closed ?? true)
-                  if (!styleByState.visible || !globalVisible) return null
-                  return (
-                    <CanvasLayer
-                      key={layer.id}
-                      layerId={layer.id}
-                      src={src}
-                      alt={layer.name}
-                      left={rect.x * previewScale}
-                      top={rect.y * previewScale}
-                      width={rect.width * previewScale}
-                      height={rect.height * previewScale}
-                      opacity={styleByState.opacity}
-                      zIndex={layer.zIndex}
-                    />
-                  )
-                })}
+                const globalVisible =
+                  gridVis === 'open'
+                    ? (layer.globalVisibility?.open ?? true)
+                    : (layer.globalVisibility?.closed ?? true)
+                if (!styleByState.visible || !globalVisible) return null
+                let previewAnimStyle: CSSProperties | undefined
+                if (animationPreview?.layerId === layer.id) {
+                  const anim = layer.animation
+                  if (anim && anim.preset !== 'none') {
+                    const animScope = anim.scope === 'grid-state' ? 'grid-state' : 'element-state'
+                    const el =
+                      animationPreview.scope === 'element-state'
+                        ? (animationPreview.phase === 0 ? animationPreview.elementFrom : animationPreview.elementTo)
+                        : stateKey
+                    const gridCtx =
+                      animationPreview.scope === 'grid-state'
+                        ? (animationPreview.phase === 0 ? animationPreview.gridFrom : animationPreview.gridTo)
+                        : gridViewState
+                    previewAnimStyle = builderPreviewFrameStyle(
+                      anim,
+                      animScope,
+                      el,
+                      gridCtx,
+                      animationPreview.phase === 0,
+                    )
+                  }
+                }
+                return (
+                  <CanvasLayer
+                    key={layer.id}
+                    layerId={layer.id}
+                    src={src}
+                    alt={layer.name}
+                    left={rect.x * previewScale}
+                    top={rect.y * previewScale}
+                    width={rect.width * previewScale}
+                    height={rect.height * previewScale}
+                    opacity={styleByState.opacity}
+                    zIndex={layer.zIndex}
+                    animationStyle={previewAnimStyle}
+                  />
+                )
+              })}
               {selectedLayer && selectedRect ? (
                 <div
                   ref={selectionBoxRef}
@@ -3407,6 +3568,16 @@ export function GridCanvasBuilder() {
                   onStepCommit={(v) => updateLayer(selectedLayer.id, { animation: { ...selectedAnimation, intensity: Math.max(0, Math.min(3, v)) } })}
                 />
               </label>
+              <div className="grid-builder__anim-preview-row">
+                <button
+                  type="button"
+                  className="grid-builder-btn grid-builder-btn--secondary"
+                  disabled={!selectedLayer || selectedAnimation.preset === 'none' || Boolean(animationPreview)}
+                  onClick={runAnimationPreview}
+                >
+                  {animationPreview ? 'Preview running…' : 'Preview in canvas'}
+                </button>
+              </div>
             </div>
           </section>
           </details>
