@@ -1,11 +1,20 @@
+import { useAuth } from '../../auth/AuthContext'
 import { useGame } from '../../game/GameContext'
 import type { GamePhase, GridViewState } from '../../game/types'
-import { useEffect, useRef, useState } from 'react'
+import { loadRemoteGridProjectsStateForUser } from '../../hooks/useSupabaseGridSync'
+import { isSupabaseAuthEnabled } from '../../lib/supabaseClient'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  displayGridProjectName,
+  getProjectsStateFreshnessScore,
+  GRID_PROJECTS_STORAGE_KEY,
   GRID_PACKAGE_EVENT,
+  hasPersistedGridProjectsState,
   loadGridProjectsState,
   publishGridProjectsState,
   saveGridProjectsState,
+  saveGridProjectsStateNow,
+  touchInMemoryState,
 } from '../grid/builder/storage'
 import type { GridProjectsState } from '../grid/builder/types'
 import type { StreamMode } from './StreamBackground'
@@ -35,19 +44,78 @@ export function RoundDevController({
   onChangeStreamMode,
 }: RoundDevControllerProps) {
   const { state, dispatch } = useGame()
+  const { session } = useAuth()
   const [gridProjectsState, setGridProjectsState] = useState<GridProjectsState>(() =>
     loadGridProjectsState(),
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    const sync = () => setGridProjectsState(loadGridProjectsState())
-    window.addEventListener(GRID_PACKAGE_EVENT, sync as EventListener)
-    return () => {
-      window.removeEventListener(GRID_PACKAGE_EVENT, sync as EventListener)
-    }
+  const refreshProjectsFromStorage = useCallback(() => {
+    setGridProjectsState(loadGridProjectsState())
   }, [])
+
+  useEffect(() => {
+    window.addEventListener(GRID_PACKAGE_EVENT, refreshProjectsFromStorage)
+    return () => {
+      window.removeEventListener(GRID_PACKAGE_EVENT, refreshProjectsFromStorage)
+    }
+  }, [refreshProjectsFromStorage])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== GRID_PROJECTS_STORAGE_KEY) return
+      refreshProjectsFromStorage()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [refreshProjectsFromStorage])
+
+  useEffect(() => {
+    const onFocus = () => {
+      refreshProjectsFromStorage()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshProjectsFromStorage()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [refreshProjectsFromStorage])
+
+  useEffect(() => {
+    if (!isSupabaseAuthEnabled() || !session?.user?.id) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const remote = await loadRemoteGridProjectsStateForUser(session.user.id)
+        if (cancelled || !remote) return
+        const local = loadGridProjectsState()
+        if (!hasPersistedGridProjectsState()) {
+          saveGridProjectsStateNow(remote)
+          touchInMemoryState(remote)
+          setGridProjectsState(remote)
+          publishGridProjectsState(remote)
+          return
+        }
+        const rScore = getProjectsStateFreshnessScore(remote)
+        const lScore = getProjectsStateFreshnessScore(local)
+        if (rScore <= lScore) return
+        saveGridProjectsStateNow(remote)
+        touchInMemoryState(remote)
+        setGridProjectsState(remote)
+        publishGridProjectsState(remote)
+      } catch {
+        /* offline / RLS */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [session?.user?.id])
 
   const switchGridProject = (projectId: string) => {
     const current = loadGridProjectsState()
@@ -139,7 +207,7 @@ export function RoundDevController({
           >
             {gridProjectsState.projects.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.name}
+                {displayGridProjectName(project)}
               </option>
             ))}
           </select>

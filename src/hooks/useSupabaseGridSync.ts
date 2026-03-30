@@ -80,6 +80,13 @@ function splitEncodedPayload(encoded: string): string[] {
   return out
 }
 
+/** Game shell / admin can hydrate the same row as the builder without mounting the canvas. */
+export async function loadRemoteGridProjectsStateForUser(userId: string): Promise<GridProjectsState | null> {
+  const row = await fetchRemote(userId)
+  if (!row) return null
+  return decodeState(row.payload)
+}
+
 async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt: string } | null> {
   if (!supabase) return null
   const { data, error } = await supabase

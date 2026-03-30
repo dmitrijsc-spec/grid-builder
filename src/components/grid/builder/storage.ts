@@ -14,6 +14,18 @@ export const GRID_RUNTIME_PACKAGES_WINDOW_NAME_KEY = 'iki-builder:grid-runtime-p
 export const DEV_RUNTIME_PACKAGES_URL = '/__iki/dev-runtime-packages'
 export const GRID_PACKAGE_EVENT = 'iki-builder:grid-package:updated'
 export const GRID_PACKAGE_BROADCAST_CHANNEL = 'iki-builder:grid-package:channel'
+
+/** Stable title for selectors (admin + builder). Handles empty `name` or legacy drift vs `pkg.meta.name`. */
+export function displayGridProjectName(project: GridProject): string {
+  const top = project.name?.trim() ?? ''
+  const desk = project.pkg?.meta?.name?.trim() ?? ''
+  const mob = project.mobilePkg?.meta?.name?.trim() ?? ''
+  if (top) return top
+  if (desk) return desk
+  if (mob) return mob
+  return 'Untitled grid'
+}
+
 let inMemoryProjectsState: GridProjectsState | null = null
 const COMPRESSED_PREFIX = 'lz16:'
 let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -674,11 +686,26 @@ function detectRuntimeDeviceMode(): RuntimeDeviceMode {
 
 export function selectProjectPackage(project: GridProject | undefined, mode: RuntimeDeviceMode): GridPackage | null {
   if (!project) return null
-  const pkg = mode === 'mobile'
-    ? (project.mobilePkg ?? project.pkg ?? null)
-    : project.pkg
-  if (!pkg) return null
-  return normalizeGridPackage(pkg)
+  if (mode !== 'mobile') {
+    const pkg = project.pkg
+    if (!pkg) return null
+    return normalizeGridPackage(pkg)
+  }
+  const desktop = project.pkg
+  const mobile = project.mobilePkg
+  if (!mobile) {
+    if (!desktop) return null
+    return normalizeGridPackage(desktop)
+  }
+  if (!desktop) return normalizeGridPackage(mobile)
+  const deskTs = Date.parse(desktop.meta?.updatedAt ?? '')
+  const mobTs = Date.parse(mobile.meta?.updatedAt ?? '')
+  // After "Mobile" was opened once, `mobilePkg` is a fork. Desktop-only edits update `pkg` but not
+  // `mobilePkg`, so phones would keep stale layers until re-publish. Prefer desktop when it is newer.
+  if (Number.isFinite(deskTs) && (!Number.isFinite(mobTs) || deskTs > mobTs)) {
+    return normalizeGridPackage(desktop)
+  }
+  return normalizeGridPackage(mobile)
 }
 
 function saveRuntimePackagesSnapshot(
@@ -1036,6 +1063,13 @@ export function saveGridProjectsState(state: GridProjectsState): void {
     // so JSON serialization does not steal interactive frames.
     scheduleIdlePersist(snapshot)
   }, debounceMs)
+}
+
+/** Writes pending debounced builder state before navigating away (avoids stale localStorage in the game tab). */
+export function flushPendingGridProjectsPersist(): void {
+  const state = pendingPersistState ?? inMemoryProjectsState
+  if (!state) return
+  saveGridProjectsStateNow(state)
 }
 
 // Force immediate durable save (used by explicit user actions like "Update Game").

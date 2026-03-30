@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { createDefaultGridPackage, createEmptyGridPackage } from '../components/grid/builder/defaultPackage'
 import {
   buildRuntimeAtlasForPackageWithFallback,
+  displayGridProjectName,
+  flushPendingGridProjectsPersist,
   loadGridProjectsState,
   resolveRuntimeAtlasResolutionMultiplier,
   mirrorExistingRuntimeSnapshotToDevServer,
@@ -1739,6 +1741,10 @@ export function GridCanvasBuilder() {
     saveGridProjectsState(projectsState)
   }, [projectsState])
 
+  useEffect(() => () => {
+    flushPendingGridProjectsPersist()
+  }, [])
+
   // Update paste handler every render (reads latest state via closures / refs), but register only once
   onPasteHandlerRef.current = (event: ClipboardEvent) => {
     const target = event.target as HTMLElement | null
@@ -2425,7 +2431,7 @@ export function GridCanvasBuilder() {
                 setProjectDropdownOpen((prev) => !prev)
               }}
             >
-              <span className="grid-builder__project-select-label">{activeProject.name}</span>
+              <span className="grid-builder__project-select-label">{displayGridProjectName(activeProject)}</span>
             </button>
           </div>
           <div className="grid-builder__actions">
@@ -2544,7 +2550,7 @@ export function GridCanvasBuilder() {
                         setProjectDropdownOpen(false)
                       }}
                     >
-                      <span>{project.name}</span>
+                      <span>{displayGridProjectName(project)}</span>
                       {isSelected ? <span className="grid-builder-dropdown__selected-dot" aria-hidden /> : null}
                     </button>
                   )
