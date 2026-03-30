@@ -45,27 +45,61 @@ function scheduleIdlePersist(state: GridProjectsState): void {
   setTimeout(() => persistNow(state), 0)
 }
 
+/** Rough sum of embedded SVG / data-URL chars (desktop + mobile packages). */
+export function estimatedProjectsInlineFootprint(state: GridProjectsState): number {
+  let n = 0
+  for (const p of state.projects) {
+    for (const pkg of [p.pkg, p.mobilePkg].filter(Boolean) as GridPackage[]) {
+      for (const layer of pkg.layers) {
+        n += layer.src?.length ?? 0
+        if (layer.stateSvgs) {
+          for (const v of Object.values(layer.stateSvgs)) {
+            if (typeof v === 'string') n += v.length
+          }
+        }
+      }
+      for (const c of pkg.components ?? []) {
+        for (const v of c.variants ?? []) {
+          n += v.src?.length ?? 0
+        }
+      }
+    }
+  }
+  return n
+}
+
 // ---------------------------------------------------------------------------
 // persistNow — fast deferred save.
-// Primary path writes plain JSON (no compression) to avoid CPU spikes while
-// editing. Compression is used only as quota fallback.
+// Plain JSON for small states; with many inline SVGs go straight to lz16 to fit quota and avoid a failing giant write.
 // ---------------------------------------------------------------------------
 function persistNow(state: GridProjectsState): void {
   if (typeof window === 'undefined') return
   const rawJson = JSON.stringify(state)
-  let payload = rawJson
+  const useCompressed =
+    rawJson.length > 320_000 || estimatedProjectsInlineFootprint(state) > 260_000
+  let payload = useCompressed
+    ? `${COMPRESSED_PREFIX}${compressToUTF16(rawJson)}`
+    : rawJson
   let wroteLocal = false
-  try {
-    window.localStorage.setItem(GRID_PROJECTS_STORAGE_KEY, payload)
-    wroteLocal = true
-  } catch {
-    // localStorage may overflow with big SVG payloads. Fallback to compressed write.
+  if (!useCompressed) {
     try {
-      payload = `${COMPRESSED_PREFIX}${compressToUTF16(rawJson)}`
       window.localStorage.setItem(GRID_PROJECTS_STORAGE_KEY, payload)
       wroteLocal = true
     } catch {
-      // noop: session/window.name fallback below
+      try {
+        payload = `${COMPRESSED_PREFIX}${compressToUTF16(rawJson)}`
+        window.localStorage.setItem(GRID_PROJECTS_STORAGE_KEY, payload)
+        wroteLocal = true
+      } catch {
+        // noop: session/window.name fallback below
+      }
+    }
+  } else {
+    try {
+      window.localStorage.setItem(GRID_PROJECTS_STORAGE_KEY, payload)
+      wroteLocal = true
+    } catch {
+      // noop
     }
   }
   try {
@@ -988,9 +1022,10 @@ export function saveGridProjectsState(state: GridProjectsState): void {
     idlePersistHandle = null
   }
 
-  // Debounce: wait for a longer idle window before serializing large SVG payloads.
-  // This keeps typing/dragging smooth while preserving autosave reliability.
+  // Debounce: longer when many inline SVGs so main-thread JSON + lz16 runs less often while dragging.
   // beforeunload (registered above) guarantees data is saved on page refresh/close.
+  const debounceMs =
+    estimatedProjectsInlineFootprint(state) > 400_000 ? 6500 : 3500
   persistTimer = setTimeout(() => {
     persistTimer = null
     const snapshot = pendingPersistState
@@ -1000,7 +1035,7 @@ export function saveGridProjectsState(state: GridProjectsState): void {
     // Persist only when browser grants enough idle budget,
     // so JSON serialization does not steal interactive frames.
     scheduleIdlePersist(snapshot)
-  }, 3500)
+  }, debounceMs)
 }
 
 // Force immediate durable save (used by explicit user actions like "Update Game").

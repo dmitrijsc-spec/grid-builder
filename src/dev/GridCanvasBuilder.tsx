@@ -616,7 +616,7 @@ export function GridCanvasBuilder() {
   const [updateRuntimeDetail, setUpdateRuntimeDetail] = useState<string | null>(null)
   const lastRuntimePublishFingerprintRef = useRef<string | null>(null)
 
-  const { status: cloudSyncStatus, saveNow: saveProjectsToCloudNow } = useSupabaseGridSync(
+  const { status: cloudSyncStatus, lastError: cloudSyncLastError, saveNow: saveProjectsToCloudNow } = useSupabaseGridSync(
     projectsState,
     (loaded) => {
       setProjectsState(loaded)
@@ -2472,15 +2472,20 @@ export function GridCanvasBuilder() {
           <div
             className={`grid-builder__cloud-sync grid-builder__cloud-sync--${
               cloudSyncStatus === 'error' ? 'error' : cloudSyncStatus === 'saving' ? 'saving' : 'saved'
-            }`}
+            }`}      
             title={
               isSupabaseAuthEnabled()
-                ? 'Builder projects are stored per login. Other accounts see their own projects.'
+                ? cloudSyncLastError
+                  ? `Save error — ${cloudSyncLastError}`
+                  : 'Builder projects are stored per login. Other accounts see their own projects.'
                 : undefined
             }
           >
             {cloudSyncStatus === 'saving' && (isSupabaseAuthEnabled() ? 'Account: saving…' : 'Saving…')}
-            {cloudSyncStatus === 'error' && 'Account: save failed'}
+            {cloudSyncStatus === 'error' &&
+              (cloudSyncLastError
+                ? `Account: save failed — ${cloudSyncLastError.slice(0, 72)}${cloudSyncLastError.length > 72 ? '…' : ''}`
+                : 'Account: save failed')}
             {cloudSyncStatus === 'saved' &&
               (isSupabaseAuthEnabled() ? 'Projects: Supabase' : 'Local only')}
           </div>

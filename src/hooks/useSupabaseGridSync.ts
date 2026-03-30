@@ -4,6 +4,7 @@ import type { GridProjectsState } from '../components/grid/builder/types'
 import {
   decodeState,
   encodeState,
+  estimatedProjectsInlineFootprint,
   getProjectsStateFreshnessScore,
   hasPersistedGridProjectsState,
   touchInMemoryState,
@@ -11,27 +12,76 @@ import {
 import { isSupabaseAuthEnabled, supabase } from '../lib/supabaseClient'
 
 const TABLE = 'scibo_user_grid_projects'
+const PARTS_TABLE = 'scibo_user_grid_project_parts'
+/** Stay under typical ~1MB Supabase REST body limits (UTF-8 JSON wrapping). */
+const MAX_SINGLE_REQUEST_PAYLOAD_CHARS = 520_000
+const PART_CHAR_SLICE = 420_000
 
 export type GridCloudSyncStatus = 'saved' | 'saving' | 'error'
+
+function splitEncodedPayload(encoded: string): string[] {
+  if (encoded.length <= MAX_SINGLE_REQUEST_PAYLOAD_CHARS) return [encoded]
+  const out: string[] = []
+  for (let i = 0; i < encoded.length; i += PART_CHAR_SLICE) {
+    out.push(encoded.slice(i, i + PART_CHAR_SLICE))
+  }
+  return out
+}
 
 async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt: string } | null> {
   if (!supabase) return null
   const { data, error } = await supabase
     .from(TABLE)
-    .select('payload, updated_at')
+    .select('payload, parts_count, updated_at')
     .eq('user_id', userId)
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { payload: string; updated_at: string }
-  if (typeof row.payload !== 'string') return null
+  const row = data as { payload: string | null; parts_count: number | null; updated_at: string }
+  const partsCount = typeof row.parts_count === 'number' ? row.parts_count : 0
+  if (partsCount > 0) {
+    const { data: parts, error: pErr } = await supabase
+      .from(PARTS_TABLE)
+      .select('part_index, content')
+      .eq('user_id', userId)
+      .order('part_index', { ascending: true })
+    if (pErr || !parts?.length) return null
+    if (parts.length !== partsCount) return null
+    const payload = parts.map((p) => (p as { content: string }).content).join('')
+    if (!payload.startsWith('lz16:')) return null
+    return { payload, updatedAt: row.updated_at }
+  }
+  if (typeof row.payload !== 'string' || !row.payload.trim()) return null
   return { payload: row.payload, updatedAt: row.updated_at }
 }
 
 async function upsertRemote(userId: string, state: GridProjectsState): Promise<void> {
   if (!supabase) return
-  const payload = encodeState(state)
+  const encoded = encodeState(state)
+  const parts = splitEncodedPayload(encoded)
+
+  const { error: delPartsErr } = await supabase.from(PARTS_TABLE).delete().eq('user_id', userId)
+  if (delPartsErr) throw delPartsErr
+
+  if (parts.length === 1) {
+    const { error } = await supabase.from(TABLE).upsert(
+      { user_id: userId, payload: parts[0], parts_count: 0 },
+      { onConflict: 'user_id' },
+    )
+    if (error) throw error
+    return
+  }
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const { error: insErr } = await supabase.from(PARTS_TABLE).insert({
+      user_id: userId,
+      part_index: i,
+      content: parts[i],
+    })
+    if (insErr) throw insErr
+  }
+
   const { error } = await supabase.from(TABLE).upsert(
-    { user_id: userId, payload },
+    { user_id: userId, payload: '', parts_count: parts.length },
     { onConflict: 'user_id' },
   )
   if (error) throw error
@@ -49,6 +99,7 @@ export function useSupabaseGridSync(
   const { session } = useAuth()
   const autoSync = options?.autoSync ?? true
   const [status, setStatus] = useState<GridCloudSyncStatus>('saved')
+  const [lastError, setLastError] = useState<string | null>(null)
   const stateRef = useRef(state)
   const onLoadRef = useRef(onLoad)
   useEffect(() => {
@@ -99,8 +150,10 @@ export function useSupabaseGridSync(
             await upsertRemote(uid, local)
           }
         }
-      } catch {
+      } catch (e) {
         mergedSessionRef.current = undefined
+        const msg = e && typeof (e as { message?: string }).message === 'string' ? (e as Error).message : 'merge failed'
+        setLastError(msg)
       }
     })()
     return () => {
@@ -112,12 +165,21 @@ export function useSupabaseGridSync(
   useEffect(() => {
     if (!isSupabaseAuthEnabled() || !session?.user?.id || !autoSync) return
     const uid = session.user.id
+    const autosyncMs =
+      estimatedProjectsInlineFootprint(state) > 400_000 ? 3200 : 1400
     const t = window.setTimeout(() => {
       setStatus('saving')
+      setLastError(null)
       void upsertRemote(uid, state)
-        .then(() => setStatus('saved'))
-        .catch(() => setStatus('error'))
-    }, 1400)
+        .then(() => {
+          setStatus('saved')
+          setLastError(null)
+        })
+        .catch((e) => {
+          setStatus('error')
+          setLastError(e instanceof Error ? e.message : String(e))
+        })
+    }, autosyncMs)
     return () => window.clearTimeout(t)
   }, [state, session?.user?.id, autoSync])
 
@@ -141,19 +203,22 @@ export function useSupabaseGridSync(
   const saveNow = useCallback(async (overrideState?: GridProjectsState) => {
     if (!isSupabaseAuthEnabled() || !session?.user?.id) return true
     setStatus('saving')
+    setLastError(null)
     try {
       await upsertRemote(session.user.id, overrideState ?? stateRef.current)
       setStatus('saved')
+      setLastError(null)
       return true
-    } catch {
+    } catch (e) {
       setStatus('error')
+      setLastError(e instanceof Error ? e.message : String(e))
       return false
     }
   }, [session])
 
   if (!isSupabaseAuthEnabled()) {
-    return { status: 'saved' as const, saveNow: async () => true }
+    return { status: 'saved' as const, lastError: null as string | null, saveNow: async () => true }
   }
 
-  return { status, saveNow }
+  return { status, lastError, saveNow }
 }
