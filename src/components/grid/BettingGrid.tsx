@@ -570,8 +570,10 @@ export function BettingGrid() {
     && !usePerspectiveShell
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
-  const tiltAngleDeg = usePerspectiveShell ? (isClosed ? baseTiltAngle : 0) : 0
-  const tiltScale = usePerspectiveShell ? (isClosed ? 0.97 : 1) : 1
+  // Match builder: tilt follows the same `open | closed` as layers/globalVisibility (gridViewState + phase),
+  // not phase alone — otherwise admin "Grid State: Open" while bets closed still tilted but hid closed-only layers.
+  const tiltAngleDeg = usePerspectiveShell ? (globalGridState === 'closed' ? baseTiltAngle : 0) : 0
+  const tiltScale = usePerspectiveShell ? (globalGridState === 'closed' ? 0.97 : 1) : 1
 
   useEffect(() => {
     if (!useIOSCanvasRendering) return

@@ -80,11 +80,20 @@ function splitEncodedPayload(encoded: string): string[] {
   return out
 }
 
-/** Game shell / admin can hydrate the same row as the builder without mounting the canvas. */
-export async function loadRemoteGridProjectsStateForUser(userId: string): Promise<GridProjectsState | null> {
+/** Row `updated_at` bumps on every cloud save even when only a non-max-stale project was renamed. */
+export async function loadRemoteGridProjectsBundle(
+  userId: string,
+): Promise<{ state: GridProjectsState; serverUpdatedAt: string } | null> {
   const row = await fetchRemote(userId)
   if (!row) return null
-  return decodeState(row.payload)
+  const state = decodeState(row.payload)
+  if (!state) return null
+  return { state, serverUpdatedAt: row.updatedAt }
+}
+
+export async function loadRemoteGridProjectsStateForUser(userId: string): Promise<GridProjectsState | null> {
+  const bundle = await loadRemoteGridProjectsBundle(userId)
+  return bundle?.state ?? null
 }
 
 async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt: string } | null> {

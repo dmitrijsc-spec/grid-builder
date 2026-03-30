@@ -1,7 +1,7 @@
 import { useAuth } from '../../auth/AuthContext'
 import { useGame } from '../../game/GameContext'
 import type { GamePhase, GridViewState } from '../../game/types'
-import { loadRemoteGridProjectsStateForUser } from '../../hooks/useSupabaseGridSync'
+import { loadRemoteGridProjectsBundle } from '../../hooks/useSupabaseGridSync'
 import { isSupabaseAuthEnabled } from '../../lib/supabaseClient'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -50,6 +50,42 @@ export function RoundDevController({
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const sessionUserIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    sessionUserIdRef.current = session?.user?.id
+  }, [session?.user?.id])
+
+  const adoptRemoteProjects = useCallback((remote: GridProjectsState) => {
+    saveGridProjectsStateNow(remote)
+    touchInMemoryState(remote)
+    setGridProjectsState(remote)
+    publishGridProjectsState(remote)
+  }, [])
+
+  const mergeProjectsFromCloud = useCallback(async () => {
+    const uid = sessionUserIdRef.current
+    if (!isSupabaseAuthEnabled() || !uid) return
+    try {
+      const bundle = await loadRemoteGridProjectsBundle(uid)
+      if (!bundle) return
+      const { state: remote, serverUpdatedAt } = bundle
+      const local = loadGridProjectsState()
+      if (!hasPersistedGridProjectsState()) {
+        adoptRemoteProjects(remote)
+        return
+      }
+      const lScore = getProjectsStateFreshnessScore(local)
+      const rScore = getProjectsStateFreshnessScore(remote)
+      const serverTs = Date.parse(serverUpdatedAt)
+      // Supabase row time advances on every save; beats max(project.updatedAt) when another project stayed "newer".
+      const serverNewerThanLocal = Number.isFinite(serverTs) && serverTs > lScore
+      if (serverNewerThanLocal || rScore > lScore) {
+        adoptRemoteProjects(remote)
+      }
+    } catch {
+      /* offline / RLS */
+    }
+  }, [adoptRemoteProjects])
 
   const refreshProjectsFromStorage = useCallback(() => {
     setGridProjectsState(loadGridProjectsState())
@@ -74,9 +110,12 @@ export function RoundDevController({
   useEffect(() => {
     const onFocus = () => {
       refreshProjectsFromStorage()
+      void mergeProjectsFromCloud()
     }
     const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshProjectsFromStorage()
+      if (document.visibilityState !== 'visible') return
+      refreshProjectsFromStorage()
+      void mergeProjectsFromCloud()
     }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisible)
@@ -84,38 +123,19 @@ export function RoundDevController({
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [refreshProjectsFromStorage])
+  }, [mergeProjectsFromCloud, refreshProjectsFromStorage])
 
   useEffect(() => {
     if (!isSupabaseAuthEnabled() || !session?.user?.id) return
     let cancelled = false
     void (async () => {
-      try {
-        const remote = await loadRemoteGridProjectsStateForUser(session.user.id)
-        if (cancelled || !remote) return
-        const local = loadGridProjectsState()
-        if (!hasPersistedGridProjectsState()) {
-          saveGridProjectsStateNow(remote)
-          touchInMemoryState(remote)
-          setGridProjectsState(remote)
-          publishGridProjectsState(remote)
-          return
-        }
-        const rScore = getProjectsStateFreshnessScore(remote)
-        const lScore = getProjectsStateFreshnessScore(local)
-        if (rScore <= lScore) return
-        saveGridProjectsStateNow(remote)
-        touchInMemoryState(remote)
-        setGridProjectsState(remote)
-        publishGridProjectsState(remote)
-      } catch {
-        /* offline / RLS */
-      }
+      await mergeProjectsFromCloud()
+      if (cancelled) return
     })()
     return () => {
       cancelled = true
     }
-  }, [session?.user?.id])
+  }, [mergeProjectsFromCloud, session?.user?.id])
 
   const switchGridProject = (projectId: string) => {
     const current = loadGridProjectsState()
