@@ -12,8 +12,26 @@ import { isSupabaseAuthEnabled } from './lib/supabaseClient'
 
 function App() {
   const { user, loading } = useAuth()
+  const authEnabled = isSupabaseAuthEnabled()
 
-  if (isSupabaseAuthEnabled()) {
+  // In production we should never silently bypass auth due to missing env.
+  if (import.meta.env.PROD && !authEnabled) {
+    return (
+      <div className="auth-loading" style={{ display: 'grid', placeItems: 'center', color: '#ffc2c2', padding: 20 }}>
+        Supabase auth is not configured on this deployment. Add
+        {' '}
+        <code>VITE_SUPABASE_URL</code>
+        {' '}
+        and
+        {' '}
+        <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>
+        {' '}
+        in Vercel Environment Variables, then redeploy.
+      </div>
+    )
+  }
+
+  if (authEnabled) {
     if (loading) {
       return (
         <div className="auth-loading" style={{ display: 'grid', placeItems: 'center', color: '#e8eef8' }}>
