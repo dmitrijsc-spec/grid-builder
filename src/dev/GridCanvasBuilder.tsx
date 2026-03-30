@@ -2991,24 +2991,25 @@ export function GridCanvasBuilder() {
                   transitAnim = {}
                 }
                 let previewAnimStyle: CSSProperties | undefined
-                if (previewTarget) {
+                if (previewTarget && animationPreview) {
                   const anim = layer.animation
                   if (anim && anim.preset !== 'none') {
+                    const ap = animationPreview
                     const animScope = anim.scope === 'grid-state' ? 'grid-state' : 'element-state'
                     const el =
-                      animationPreview.scope === 'element-state'
-                        ? (animationPreview.phase === 0 ? animationPreview.elementFrom : animationPreview.elementTo)
+                      ap.scope === 'element-state'
+                        ? (ap.phase === 0 ? ap.elementFrom : ap.elementTo)
                         : stateKey
                     const gridCtx =
-                      animationPreview.scope === 'grid-state'
-                        ? (animationPreview.phase === 0 ? animationPreview.gridFrom : animationPreview.gridTo)
+                      ap.scope === 'grid-state'
+                        ? (ap.phase === 0 ? ap.gridFrom : ap.gridTo)
                         : gridViewState
                     previewAnimStyle = builderPreviewFrameStyle(
                       anim,
                       animScope,
                       el,
                       gridCtx,
-                      animationPreview.phase === 0,
+                      ap.phase === 0,
                     )
                   }
                 }
