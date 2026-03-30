@@ -2,17 +2,21 @@ import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom'
 import { createDefaultGridPackage, createEmptyGridPackage } from '../components/grid/builder/defaultPackage'
 import {
-  buildRuntimeAtlasForPackage,
+  buildRuntimeAtlasForPackageWithFallback,
   loadGridProjectsState,
+  mirrorExistingRuntimeSnapshotToDevServer,
   publishRuntimePackages,
   saveGridProjectsState,
   saveGridProjectsStateNow,
   selectProjectPackage,
   touchInMemoryState,
 } from '../components/grid/builder/storage'
-import { useConvexGridSync } from '../hooks/useConvexGridSync'
-import { usePublishRuntimeGrid } from '../hooks/usePublishRuntimeGrid'
-import { ProfileButton } from '../auth/ProfileButton'
+import { useLocalGridSync } from '../hooks/useLocalGridSync'
+import {
+  GRID_CLOUD_ROOM_STORAGE_KEY,
+  isSupabaseGridCloudConfigured,
+  pushRuntimeSnapshotToSupabaseFromBrowser,
+} from '../services/gridCloudSupabase'
 import type { BetZoneId } from '../game/types'
 import type { GridLayer, GridPackage, GridProject, GridProjectsState, GridVisualState } from '../components/grid/builder/types'
 
@@ -38,13 +42,15 @@ function fallbackZoneId(layerId: string): BetZoneId {
 // Stable reference — prevents useEffect re-run every render when no layer is selected
 const DEFAULT_ENABLED_STATES: GridVisualState[] = ['default']
 
-function getRuntimePackageFingerprint(state: GridProjectsState, mode: 'desktop' | 'mobile'): string {
+/** Both desktop + mobile packages — otherwise edits in the “other” builder mode never publish or hit the LAN relay. */
+function getRuntimePublishFingerprint(state: GridProjectsState): string {
   const active =
     state.projects.find((project) => project.id === state.activeProjectId) ??
     state.projects[0]
-  if (!active) return `${mode}:none`
-  const activePkg = mode === 'desktop' ? active.pkg : (active.mobilePkg ?? active.pkg)
-  return `${mode}:${active.id}:${JSON.stringify(activePkg)}`
+  if (!active) return 'none'
+  const desktop = active.pkg
+  const mobile = active.mobilePkg ?? active.pkg
+  return `${active.id}:${JSON.stringify({ desktop, mobile })}`
 }
 
 function fitRectIntoFrame(
@@ -114,7 +120,7 @@ function parseSvgNaturalSize(svgText: string): { width: number; height: number }
     const heightAttr = svg.getAttribute('height')
     const toNumber = (value: string | null): number | null => {
       if (!value) return null
-      const num = Number.parseFloat(value.replace(/[^\d.\-]/g, ''))
+      const num = Number.parseFloat(value.replace(/[^\d.-]/g, ''))
       return Number.isFinite(num) && num > 0 ? num : null
     }
 
@@ -155,7 +161,7 @@ function parseSvgPlacement(svgText: string): {
     if (!svg) return null
     const toNumber = (value: string | null): number | null => {
       if (!value) return null
-      const num = Number.parseFloat(value.replace(/[^\d.\-]/g, ''))
+      const num = Number.parseFloat(value.replace(/[^\d.-]/g, ''))
       return Number.isFinite(num) ? num : null
     }
 
@@ -312,6 +318,7 @@ const DeferredTextInput = memo(function DeferredTextInput({ value, onCommit, onB
   // Sync when the external value changes (e.g. different layer selected)
   useEffect(() => {
     if (value !== committed.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync from props
       setLocal(value)
       committed.current = value
     }
@@ -367,6 +374,7 @@ const DeferredNumberInput = memo(function DeferredNumberInput({
   // This prevents overwriting what the user is typing when an external update arrives.
   useEffect(() => {
     if (!focusedRef.current && value !== committedRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync from props when not focused
       setLocal(String(value))
       committedRef.current = value
     }
@@ -568,13 +576,35 @@ export function GridCanvasBuilder() {
   const [projectsState, setProjectsState] = useState<GridProjectsState>(loadGridProjectsState)
   const projectsStateRef = useRef<GridProjectsState>(projectsState)
   const [updateRuntimeStatus, setUpdateRuntimeStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
+  const [updateRuntimeDetail, setUpdateRuntimeDetail] = useState<string | null>(null)
   const lastRuntimePublishFingerprintRef = useRef<string | null>(null)
+  const [cloudRoomInput, setCloudRoomInput] = useState(() =>
+    typeof window !== 'undefined' ? window.localStorage.getItem(GRID_CLOUD_ROOM_STORAGE_KEY) ?? '' : '',
+  )
 
-  const { status: cloudSyncStatus, saveNow: saveToCloudNow } = useConvexGridSync(projectsState, (loaded) => {
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const id = window.setTimeout(() => {
+      window.localStorage.setItem(GRID_CLOUD_ROOM_STORAGE_KEY, cloudRoomInput.trim())
+    }, 400)
+    return () => window.clearTimeout(id)
+  }, [cloudRoomInput])
+
+  const copySharedPlayLink = useCallback(async () => {
+    const room = cloudRoomInput.trim()
+    if (!room || typeof window === 'undefined') return
+    const url = `${window.location.origin}/?room=${encodeURIComponent(room)}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      window.prompt('Copy play link:', url)
+    }
+  }, [cloudRoomInput])
+
+  const { status: cloudSyncStatus } = useLocalGridSync(projectsState, (loaded) => {
     setProjectsState(loaded)
     projectsStateRef.current = loaded
   }, { autoSync: false })
-  const publishRuntimeGridToCloud = usePublishRuntimeGrid()
   const activeProject = useMemo(
     () =>
       projectsState.projects.find(
@@ -893,25 +923,46 @@ export function GridCanvasBuilder() {
 
   const pushActiveGridToRuntime = async () => {
     setUpdateRuntimeStatus('saving')
+    setUpdateRuntimeDetail(null)
+    const detailParts: string[] = []
     try {
-      const runtimeFingerprint = getRuntimePackageFingerprint(projectsState, deviceModeRef.current)
+      const runtimeFingerprint = getRuntimePublishFingerprint(projectsState)
       const shouldPublishToRuntime = runtimeFingerprint !== lastRuntimePublishFingerprintRef.current
       saveGridProjectsStateNow(projectsState)
       if (shouldPublishToRuntime) {
         const active = projectsState.projects.find((p) => p.id === projectsState.activeProjectId)
-        const desktopPkg = await buildRuntimeAtlasForPackage(selectProjectPackage(active, 'desktop'), 4, 8192)
-        const mobilePkg = await buildRuntimeAtlasForPackage(selectProjectPackage(active, 'mobile'), 7, 8192)
+        const { pkg: desktopPkg, error: desktopAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
+          selectProjectPackage(active, 'desktop'),
+          4,
+          8192,
+        )
+        const { pkg: mobilePkg, error: mobileAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
+          selectProjectPackage(active, 'mobile'),
+          5,
+          8192,
+        )
+        detailParts.push(
+          ...(
+            [
+              desktopAtlasErr && `desktop atlas: ${desktopAtlasErr}`,
+              mobileAtlasErr && `mobile atlas: ${mobileAtlasErr}`,
+            ].filter(Boolean) as string[]
+          ),
+        )
         publishRuntimePackages(desktopPkg, mobilePkg, deviceModeRef.current)
         lastRuntimePublishFingerprintRef.current = runtimeFingerprint
-        await Promise.all([
-          saveToCloudNow(),
-          publishRuntimeGridToCloud(desktopPkg, mobilePkg),
-        ])
       } else {
-        await saveToCloudNow()
+        // Re-push last snapshot to the dev relay so phones can catch up (relay reset, new tab, etc.)
+        mirrorExistingRuntimeSnapshotToDevServer()
       }
+      const cloudResult = await pushRuntimeSnapshotToSupabaseFromBrowser()
+      if (!cloudResult.ok) detailParts.push(`cloud: ${cloudResult.error}`)
+      if (detailParts.length > 0) setUpdateRuntimeDetail(detailParts.join(' · '))
       setUpdateRuntimeStatus('success')
-    } catch {
+    } catch (e) {
+      console.error('[SciBo] pushActiveGridToRuntime failed:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      setUpdateRuntimeDetail(msg)
       setUpdateRuntimeStatus('error')
     }
   }
@@ -2261,15 +2312,35 @@ export function GridCanvasBuilder() {
             >Closed</button>
           </div>
           <div className={`grid-builder__cloud-sync grid-builder__cloud-sync--${cloudSyncStatus}`}>
-            {cloudSyncStatus === 'loading' && 'Cloud: Loading'}
-            {cloudSyncStatus === 'saving' && 'Cloud: Saving...'}
-            {cloudSyncStatus === 'saved' && 'Cloud: Saved'}
-            {cloudSyncStatus === 'error' && 'Cloud: Error'}
+            {cloudSyncStatus === 'saved' &&
+              (isSupabaseGridCloudConfigured() ? 'Local + Supabase' : 'Local only')}
           </div>
-          <div className={`grid-builder__cloud-sync grid-builder__cloud-sync--${updateRuntimeStatus === 'success' ? 'saved' : updateRuntimeStatus === 'error' ? 'error' : updateRuntimeStatus}`}>
+          {isSupabaseGridCloudConfigured() ? (
+            <div className="grid-builder__cloud-share">
+              <label htmlFor="grid-cloud-room" className="grid-builder__visually-hidden">
+                Share room id
+              </label>
+              <input
+                id="grid-cloud-room"
+                className="grid-builder__cloud-room-input"
+                placeholder="share room"
+                value={cloudRoomInput}
+                onChange={(e) => setCloudRoomInput(e.target.value)}
+                title="Players open /?room=this value — keep it private like a password"
+              />
+              <button type="button" className="grid-builder-btn" onClick={() => { void copySharedPlayLink() }}>
+                Copy link
+              </button>
+            </div>
+          ) : null}
+          <div
+            className={`grid-builder__cloud-sync grid-builder__cloud-sync--${updateRuntimeStatus === 'success' ? 'saved' : updateRuntimeStatus === 'error' ? 'error' : updateRuntimeStatus}`}
+            title={updateRuntimeDetail ?? undefined}
+          >
             {updateRuntimeStatus === 'saving' && 'Update Game: Sending...'}
-            {updateRuntimeStatus === 'success' && 'Update Game: Success'}
-            {updateRuntimeStatus === 'error' && 'Update Game: Failed'}
+            {updateRuntimeStatus === 'success' &&
+              (updateRuntimeDetail ? 'Update Game: Success (no bitmap — hover for reason)' : 'Update Game: Success')}
+            {updateRuntimeStatus === 'error' && `Update Game: Failed${updateRuntimeDetail ? ` — ${updateRuntimeDetail.slice(0, 80)}${updateRuntimeDetail.length > 80 ? '…' : ''}` : ''}`}
             {updateRuntimeStatus === 'idle' && 'Update Game: Ready'}
           </div>
           <button
@@ -2284,7 +2355,6 @@ export function GridCanvasBuilder() {
           <button type="button" className="grid-builder-btn grid-builder-btn--primary" onClick={openCreateProjectPopup}>
             Create Grid
           </button>
-          <ProfileButton />
         </div>
       </header>
 

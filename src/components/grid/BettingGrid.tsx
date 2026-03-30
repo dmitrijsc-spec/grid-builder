@@ -1,15 +1,22 @@
 import { useBettingOpen, useGame } from '../../game/GameContext'
 import type { BetZoneId } from '../../game/types'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useQuery } from 'convex/react'
-import { api } from '../../../convex/_generated/api'
 import { createDefaultGridPackage } from './builder/defaultPackage'
 import {
+  applyRuntimePackagesPayloadFromDevServer,
+  decodeRuntimePackagesSnapshotRaw,
+  DEV_RUNTIME_PACKAGES_URL,
+  getRuntimeLayoutMode,
   GRID_PACKAGE_BROADCAST_CHANNEL,
   GRID_PACKAGE_EVENT,
   loadGridPackage,
   normalizeGridPackage,
 } from './builder/storage'
+import {
+  getGridCloudRoomForPlay,
+  isSupabaseGridCloudConfigured,
+  supabasePullGridRuntimePayload,
+} from '../../services/gridCloudSupabase'
 import type { GridPackage, GridVisualState } from './builder/types'
 import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
@@ -196,21 +203,7 @@ function layerAnimationStyle(
 }
 
 export function BettingGrid() {
-  const detectMobileRuntime = (): boolean => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
-    const ua = window.navigator.userAgent ?? ''
-    const uaDataMobile = (window.navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile
-    if (uaDataMobile === true) return true
-    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true
-    const platform = window.navigator.platform ?? ''
-    const maxTouchPoints = window.navigator.maxTouchPoints ?? 0
-    // iPadOS may report itself as Mac.
-    return platform === 'MacIntel' && maxTouchPoints > 1
-  }
-
-  const detectViewportMode = (): 'desktop' | 'mobile' => {
-    return detectMobileRuntime() ? 'mobile' : 'desktop'
-  }
+  const detectViewportMode = (): 'desktop' | 'mobile' => getRuntimeLayoutMode()
 
   const { state } = useGame()
   const isClosed = state.phase !== 'betting'
@@ -228,41 +221,9 @@ export function BettingGrid() {
     desktop: GridPackage | null
     mobile: GridPackage | null
   }>({ desktop: null, mobile: null })
-  const hadLocalPackageRef = useRef(false)
-  const [gridPackage, setGridPackage] = useState<GridPackage>(() => {
-    const local = loadGridPackage(detectViewportMode())
-    if (local) hadLocalPackageRef.current = true
-    return local ?? createDefaultGridPackage()
-  })
-
-  const publishedGridCloud = useQuery(api.grids.getPublishedRuntimeGrid)
-  const cloudAppliedRef = useRef(false)
-  useEffect(() => {
-    if (hadLocalPackageRef.current || cloudAppliedRef.current) return
-    if (!publishedGridCloud?.data) return
-    try {
-      const parsed = JSON.parse(publishedGridCloud.data) as {
-        version: number
-        desktopPkg: GridPackage | null
-        mobilePkg: GridPackage | null
-      }
-      if (parsed?.version !== 1) return
-      if (parsed.desktopPkg) {
-        latestPublishedPackagesRef.current.desktop = normalizeGridPackage(parsed.desktopPkg)
-      }
-      if (parsed.mobilePkg) {
-        latestPublishedPackagesRef.current.mobile = normalizeGridPackage(parsed.mobilePkg)
-      }
-      const selected =
-        runtimeDeviceMode === 'mobile'
-          ? parsed.mobilePkg
-          : parsed.desktopPkg
-      if (selected?.version === 1) {
-        cloudAppliedRef.current = true
-        setGridPackage(normalizeGridPackage(selected))
-      }
-    } catch { /* cloud data corrupted — stay on default */ }
-  }, [publishedGridCloud, runtimeDeviceMode])
+  const [gridPackage, setGridPackage] = useState<GridPackage>(
+    () => loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage(),
+  )
 
   useEffect(() => {
     const pickForMode = (
@@ -334,6 +295,72 @@ export function BettingGrid() {
       channel?.close()
     }
   }, [runtimeDeviceMode])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (isSupabaseGridCloudConfigured() && getGridCloudRoomForPlay()) return
+    let cancelled = false
+    let lastSeenUpdatedAt = ''
+    const poll = async () => {
+      try {
+        const res = await fetch(`${DEV_RUNTIME_PACKAGES_URL}?t=${Date.now()}`, { cache: 'no-store' })
+        if (!res.ok || cancelled) return
+        const text = await res.text()
+        if (!text.trim()) return
+        const snap = decodeRuntimePackagesSnapshotRaw(text)
+        if (!snap?.updatedAt || snap.updatedAt === lastSeenUpdatedAt) return
+        lastSeenUpdatedAt = snap.updatedAt
+        applyRuntimePackagesPayloadFromDevServer(text)
+      } catch {
+        // Relay unavailable (e.g. production preview) — ignore
+      }
+    }
+    void poll()
+    const id = window.setInterval(poll, 1500)
+    const onBecameVisible = () => {
+      if (!document.hidden) void poll()
+    }
+    document.addEventListener('visibilitychange', onBecameVisible)
+    window.addEventListener('focus', onBecameVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onBecameVisible)
+      window.removeEventListener('focus', onBecameVisible)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isSupabaseGridCloudConfigured()) return
+    const room = getGridCloudRoomForPlay()
+    if (!room) return
+    let cancelled = false
+    let lastRemoteUpdatedAt = ''
+    const poll = async () => {
+      try {
+        const row = await supabasePullGridRuntimePayload(room)
+        if (!row || cancelled) return
+        if (row.updatedAt === lastRemoteUpdatedAt) return
+        const ok = applyRuntimePackagesPayloadFromDevServer(row.payload)
+        if (ok) lastRemoteUpdatedAt = row.updatedAt
+      } catch {
+        // offline / CORS / quota
+      }
+    }
+    void poll()
+    const id = window.setInterval(poll, 4000)
+    const onBecameVisible = () => {
+      if (!document.hidden) void poll()
+    }
+    document.addEventListener('visibilitychange', onBecameVisible)
+    window.addEventListener('focus', onBecameVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onBecameVisible)
+      window.removeEventListener('focus', onBecameVisible)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -445,6 +472,7 @@ export function BettingGrid() {
         }),
     [gridPackage.layers],
   )
+  /* eslint-disable react-hooks/refs -- previousLayerStateRef read for hover transition baseline */
   const renderLayers = useMemo(
     () =>
       gridPackage.layers
@@ -515,6 +543,7 @@ export function BettingGrid() {
       runtimeOriginY,
     ],
   )
+  /* eslint-enable react-hooks/refs */
 
   useEffect(() => {
     const next: Record<string, GridVisualState> = {}

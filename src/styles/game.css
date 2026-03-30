@@ -2678,6 +2678,30 @@ button:focus-visible {
   background: rgba(255, 125, 125, 0.12);
 }
 
+.grid-builder__cloud-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grid-builder__cloud-room-input {
+  height: 36px;
+  width: 140px;
+  max-width: min(180px, 28vw);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #1e232b;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+.grid-builder__cloud-room-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
 /* ── Grid view-state toggle (Open / Closed) ─────────────────────────────── */
 .grid-builder__view-state-toggle {
   display: flex;

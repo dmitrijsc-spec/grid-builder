@@ -8,6 +8,12 @@ interface ImportMetaEnv {
   readonly VITE_STREAM_URL?: string
   /** Static background image for testing (e.g. /stream-test.jpg) */
   readonly VITE_STREAM_IMAGE?: string
+  /** Supabase project URL (shared grid snapshots) */
+  readonly VITE_SUPABASE_URL?: string
+  /** Supabase anon key (RLS policies must allow read/write for your use case) */
+  readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Default grid “room” id when ?room= is omitted */
+  readonly VITE_GRID_CLOUD_ROOM?: string
 }
 
 interface ImportMeta {

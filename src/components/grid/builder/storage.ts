@@ -10,6 +10,8 @@ export const GRID_PROJECTS_WINDOW_NAME_KEY = 'iki-builder:grid-projects:window-n
 export const GRID_RUNTIME_PACKAGES_STORAGE_KEY = 'iki-builder:grid-runtime-packages:v1'
 export const GRID_RUNTIME_PACKAGES_SESSION_STORAGE_KEY = 'iki-builder:grid-runtime-packages:session:v1'
 export const GRID_RUNTIME_PACKAGES_WINDOW_NAME_KEY = 'iki-builder:grid-runtime-packages:window-name:v1'
+/** Dev-only: Vite middleware relays POST body; clients poll GET (same LAN as `npm run dev`). */
+export const DEV_RUNTIME_PACKAGES_URL = '/__iki/dev-runtime-packages'
 export const GRID_PACKAGE_EVENT = 'iki-builder:grid-package:updated'
 export const GRID_PACKAGE_BROADCAST_CHANNEL = 'iki-builder:grid-package:channel'
 let inMemoryProjectsState: GridProjectsState | null = null
@@ -178,6 +180,106 @@ function writeWindowNameState(state: GridProjectsState): void {
   }
 }
 
+type RuntimeDeviceMode = 'desktop' | 'mobile'
+
+type RuntimePackagesSnapshot = {
+  version: 1
+  updatedAt: string
+  desktopPkg: GridPackage | null
+  mobilePkg: GridPackage | null
+}
+
+export function decodeRuntimePackagesSnapshotRaw(raw: string | null): RuntimePackagesSnapshot | null {
+  if (!raw) return null
+  try {
+    const json = raw.startsWith(COMPRESSED_PREFIX)
+      ? (decompressFromUTF16(raw.slice(COMPRESSED_PREFIX.length)) ?? '')
+      : raw
+    if (!json) return null
+    const parsed = JSON.parse(json) as RuntimePackagesSnapshot
+    if (parsed?.version !== 1) return null
+    return {
+      version: 1,
+      updatedAt: parsed.updatedAt,
+      desktopPkg: parsed.desktopPkg ? normalizeGridPackage(parsed.desktopPkg) : null,
+      mobilePkg: parsed.mobilePkg ? normalizeGridPackage(parsed.mobilePkg) : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function syncRuntimePackagesToTransientStores(encoded: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(GRID_RUNTIME_PACKAGES_SESSION_STORAGE_KEY, encoded)
+  } catch {
+    // noop
+  }
+  try {
+    let root: Record<string, unknown> = {}
+    if (window.name) {
+      const parsed = JSON.parse(window.name) as Record<string, unknown>
+      if (parsed && typeof parsed === 'object') root = parsed
+    }
+    root[GRID_RUNTIME_PACKAGES_WINDOW_NAME_KEY] = encoded
+    window.name = JSON.stringify(root)
+  } catch {
+    // noop
+  }
+}
+
+function mirrorRuntimePackagesPayloadToDevServer(encoded: string): void {
+  if (typeof window === 'undefined' || !import.meta.env.DEV) return
+  if (!encoded) return
+  void fetch(DEV_RUNTIME_PACKAGES_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: encoded,
+  })
+    .then((res) => {
+      if (!res.ok) {
+        console.warn('[SciBo] Dev grid relay POST failed:', res.status, res.statusText)
+      }
+    })
+    .catch((err) => {
+      console.warn('[SciBo] Dev grid relay POST error:', err)
+    })
+}
+
+/** Re-send the last saved runtime snapshot to the Vite relay (e.g. phone reconnect, fingerprint unchanged). */
+export function mirrorExistingRuntimeSnapshotToDevServer(): void {
+  if (typeof window === 'undefined' || !import.meta.env.DEV) return
+  const encoded = window.localStorage.getItem(GRID_RUNTIME_PACKAGES_STORAGE_KEY)
+  if (encoded) mirrorRuntimePackagesPayloadToDevServer(encoded)
+}
+
+/**
+ * Apply a snapshot fetched from the dev relay (another device’s localStorage payload).
+ * Does not re-post to the relay (avoids loops).
+ */
+export function applyRuntimePackagesPayloadFromDevServer(encoded: string): boolean {
+  if (typeof window === 'undefined' || !encoded.trim()) return false
+  const snap = decodeRuntimePackagesSnapshotRaw(encoded)
+  if (!snap) return false
+  try {
+    window.localStorage.setItem(GRID_RUNTIME_PACKAGES_STORAGE_KEY, encoded)
+  } catch {
+    // Huge atlas can exceed mobile quota; still update the live grid via the event below.
+  }
+  syncRuntimePackagesToTransientStores(encoded)
+  const mode = getRuntimeLayoutMode()
+  const detail = {
+    desktopPkg: snap.desktopPkg,
+    mobilePkg: snap.mobilePkg,
+    pkg: mode === 'mobile' ? snap.mobilePkg : snap.desktopPkg,
+    mode,
+  }
+  window.dispatchEvent(new CustomEvent(GRID_PACKAGE_EVENT, { detail }))
+  broadcastGridPackage(detail)
+  return true
+}
+
 function broadcastGridPackage(detail: {
   pkg: GridPackage | null
   mode: RuntimeDeviceMode
@@ -194,8 +296,6 @@ function broadcastGridPackage(detail: {
   }
 }
 
-type RuntimeDeviceMode = 'desktop' | 'mobile'
-
 function detectMobileRuntime(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
   const ua = window.navigator.userAgent ?? ''
@@ -204,14 +304,25 @@ function detectMobileRuntime(): boolean {
   if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true
   const platform = window.navigator.platform ?? ''
   const maxTouchPoints = window.navigator.maxTouchPoints ?? 0
-  return platform === 'MacIntel' && maxTouchPoints > 1
+  if (platform === 'MacIntel' && maxTouchPoints > 1) return true
+
+  // UA-only detection misses: in-app browsers, “Request Desktop Website”, some Wi‑Fi test setups.
+  if (typeof window.matchMedia === 'function') {
+    if (window.matchMedia('(max-width: 900px)').matches) return true
+    // Touch-first device with a not-huge viewport (e.g. iPhone desktop mode ~980–1024px wide).
+    if (
+      window.matchMedia('(pointer: coarse)').matches &&
+      window.matchMedia('(max-width: 1280px)').matches
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
-type RuntimePackagesSnapshot = {
-  version: 1
-  updatedAt: string
-  desktopPkg: GridPackage | null
-  mobilePkg: GridPackage | null
+/** Use the same rules as loadGridPackage / runtime snapshot selection. */
+export function getRuntimeLayoutMode(): RuntimeDeviceMode {
+  return detectMobileRuntime() ? 'mobile' : 'desktop'
 }
 
 function pickLayerSourceForAtlas(pkg: GridPackage, layer: GridPackage['layers'][number]): string {
@@ -266,8 +377,13 @@ export async function buildRuntimeAtlasForPackage(
   if (!pkg) return null
   if (typeof window === 'undefined') return pkg
   const bounds = resolveAtlasBounds(pkg)
-  const targetWidth = Math.max(1, Math.min(maxTextureWidth, Math.round(bounds.width * qualityScale)))
-  const targetHeight = Math.max(1, Math.round((targetWidth / bounds.width) * bounds.height))
+  // Clamp both dimensions: old logic only capped width, so tall grids produced
+  // huge heights (> browser canvas limits) and Update Game failed silently.
+  const rawW = Math.max(1, Math.round(bounds.width * qualityScale))
+  const rawH = Math.max(1, Math.round(bounds.height * qualityScale))
+  const fit = Math.min(maxTextureWidth / rawW, maxTextureWidth / rawH, 1)
+  const targetWidth = Math.max(1, Math.round(rawW * fit))
+  const targetHeight = Math.max(1, Math.round(rawH * fit))
   const layers = pkg.layers.slice().sort((a, b) => a.zIndex - b.zIndex)
   const uniqueSources = Array.from(new Set(layers.map((layer) => pickLayerSourceForAtlas(pkg, layer))))
   const loadImage = (src: string) =>
@@ -341,8 +457,31 @@ export async function buildRuntimeAtlasForPackage(
   return nextPkg
 }
 
+export type BuildRuntimeAtlasWithFallbackResult = {
+  pkg: GridPackage | null
+  error: string | null
+}
+
+export async function buildRuntimeAtlasForPackageWithFallback(
+  pkg: GridPackage | null,
+  qualityScale = 6,
+  maxTextureWidth = 8192,
+): Promise<BuildRuntimeAtlasWithFallbackResult> {
+  if (!pkg) return { pkg: null, error: null }
+  try {
+    const built = await buildRuntimeAtlasForPackage(pkg, qualityScale, maxTextureWidth)
+    return { pkg: built, error: null }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[SciBo] buildRuntimeAtlasForPackage failed:', e)
+    const fallback = structuredClone(pkg) as GridPackage
+    delete fallback.global.runtimeAtlas
+    return { pkg: normalizeGridPackage(fallback), error: msg }
+  }
+}
+
 function detectRuntimeDeviceMode(): RuntimeDeviceMode {
-  return detectMobileRuntime() ? 'mobile' : 'desktop'
+  return getRuntimeLayoutMode()
 }
 
 export function selectProjectPackage(project: GridProject | undefined, mode: RuntimeDeviceMode): GridPackage | null {
@@ -388,58 +527,28 @@ function saveRuntimePackagesSnapshot(
       }
     }
   }
-  try {
-    window.sessionStorage.setItem(GRID_RUNTIME_PACKAGES_SESSION_STORAGE_KEY, encoded)
-  } catch {
-    // noop
-  }
-  // Keep window.name as last durable fallback (same-tab refresh safe).
-  try {
-    let root: Record<string, unknown> = {}
-    if (window.name) {
-      const parsed = JSON.parse(window.name) as Record<string, unknown>
-      if (parsed && typeof parsed === 'object') root = parsed
-    }
-    root[GRID_RUNTIME_PACKAGES_WINDOW_NAME_KEY] = encoded
-    window.name = JSON.stringify(root)
-  } catch {
-    // noop
-  }
+  syncRuntimePackagesToTransientStores(encoded)
   if (!wroteLocal) {
     // no-op; session/window.name may still persist successfully
   }
+  mirrorRuntimePackagesPayloadToDevServer(encoded)
 }
 
 function loadRuntimePackagesSnapshot(): RuntimePackagesSnapshot | null {
   if (typeof window === 'undefined') return null
-  const decodeSnapshotRaw = (raw: string | null): RuntimePackagesSnapshot | null => {
-    if (!raw) return null
-    try {
-      const json = raw.startsWith(COMPRESSED_PREFIX)
-        ? (decompressFromUTF16(raw.slice(COMPRESSED_PREFIX.length)) ?? '')
-        : raw
-      if (!json) return null
-      const parsed = JSON.parse(json) as RuntimePackagesSnapshot
-      if (parsed?.version !== 1) return null
-      return {
-        version: 1,
-        updatedAt: parsed.updatedAt,
-        desktopPkg: parsed.desktopPkg ? normalizeGridPackage(parsed.desktopPkg) : null,
-        mobilePkg: parsed.mobilePkg ? normalizeGridPackage(parsed.mobilePkg) : null,
-      }
-    } catch {
-      return null
-    }
-  }
   try {
-    const localSnapshot = decodeSnapshotRaw(window.localStorage.getItem(GRID_RUNTIME_PACKAGES_STORAGE_KEY))
-    const sessionSnapshot = decodeSnapshotRaw(window.sessionStorage.getItem(GRID_RUNTIME_PACKAGES_SESSION_STORAGE_KEY))
+    const localSnapshot = decodeRuntimePackagesSnapshotRaw(
+      window.localStorage.getItem(GRID_RUNTIME_PACKAGES_STORAGE_KEY),
+    )
+    const sessionSnapshot = decodeRuntimePackagesSnapshotRaw(
+      window.sessionStorage.getItem(GRID_RUNTIME_PACKAGES_SESSION_STORAGE_KEY),
+    )
     let windowNameSnapshot: RuntimePackagesSnapshot | null = null
     try {
       if (window.name) {
         const parsedRoot = JSON.parse(window.name) as Record<string, unknown>
         const raw = parsedRoot?.[GRID_RUNTIME_PACKAGES_WINDOW_NAME_KEY]
-        windowNameSnapshot = decodeSnapshotRaw(typeof raw === 'string' ? raw : null)
+        windowNameSnapshot = decodeRuntimePackagesSnapshotRaw(typeof raw === 'string' ? raw : null)
       }
     } catch {
       // noop
