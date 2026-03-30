@@ -2178,9 +2178,28 @@ button:focus-visible {
     margin-top: auto;
   }
 
-  .betting-grid-shell[data-perspective='off'] .betting-grid {
+  /* Integer CSS pixels aligned to devicePixelRatio — reduces SVG-in-<img> softness from fractional layout. */
+  .betting-grid-shell[data-mobile-pixel-snap='on'] .betting-grid {
+    width: var(--betting-grid-snapped-w) !important;
+    max-width: var(--betting-grid-snapped-w) !important;
+    height: var(--betting-grid-snapped-h) !important;
+    min-height: 0 !important;
+    aspect-ratio: unset !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Do not reset width when pixel-snap owns size (same specificity as snap rule would lose on cascade). */
+  .betting-grid-shell[data-perspective='off']:not([data-mobile-pixel-snap='on']) .betting-grid {
     width: 100% !important;
     max-width: 100% !important;
+    transform: none;
+    will-change: auto;
+    transform-origin: center bottom;
+  }
+
+  .betting-grid-shell[data-perspective='off'][data-mobile-pixel-snap='on'] .betting-grid {
     transform: none;
     will-change: auto;
     transform-origin: center bottom;
@@ -2331,12 +2350,30 @@ button:focus-visible {
   margin-top: auto;
 }
 
-.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'] .betting-grid {
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off']:not([data-mobile-pixel-snap='on']) .betting-grid {
   width: 100% !important;
   max-width: 100% !important;
   transform: none;
   will-change: auto;
   transform-origin: center bottom;
+}
+
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'][data-mobile-pixel-snap='on'] .betting-grid {
+  transform: none;
+  will-change: auto;
+  transform-origin: center bottom;
+}
+
+/* Preview shell beats base snap specificity — restate snapped box here. */
+.game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-mobile-pixel-snap='on'] .betting-grid {
+  width: var(--betting-grid-snapped-w) !important;
+  max-width: var(--betting-grid-snapped-w) !important;
+  height: var(--betting-grid-snapped-h) !important;
+  min-height: 0 !important;
+  aspect-ratio: unset !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
 }
 
 .game-frame-shell[data-mobile-preview='on'] .game-frame__viewport {

@@ -22,6 +22,12 @@ import type { GridGameViewState, GridPackage, GridVisualState } from './builder/
 import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
 
+/** Mobile WK/Blink often softens SVG-in-<img> when layout width is fractional; snap to device pixel grid. */
+function snapCssPx(cssPx: number): number {
+  const dpr = typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1
+  return Math.round(cssPx * dpr) / dpr
+}
+
 function BetCell({
   zone,
   className = '',
@@ -165,6 +171,8 @@ export function BettingGrid() {
   const [runtimeDeviceMode, setRuntimeDeviceMode] = useState<'desktop' | 'mobile'>(() => detectViewportMode())
   const [hoveredZoneId, setHoveredZoneId] = useState<BetZoneId | null>(null)
   const [imageCacheVersion, setImageCacheVersion] = useState(0)
+  const [mobileSnapSize, setMobileSnapSize] = useState<{ w: number; h: number } | null>(null)
+  const gridShellRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const canvasImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const previousLayerStateRef = useRef<Record<string, GridVisualState>>({})
@@ -592,6 +600,30 @@ export function BettingGrid() {
     }
   }, [renderLayers, useIOSCanvasRendering])
 
+  const useMobileLayoutSnap = isMobileRuntime
+  useLayoutEffect(() => {
+    if (!useMobileLayoutSnap) {
+      setMobileSnapSize(null)
+      return
+    }
+    const shell = gridShellRef.current
+    if (!shell) return
+
+    const measure = () => {
+      const rect = shell.getBoundingClientRect()
+      const rawW = rect.width
+      if (!Number.isFinite(rawW) || rawW < 1) return
+      const w = Math.max(1, snapCssPx(rawW))
+      const h = Math.max(1, snapCssPx((w * runtimeFrameHeight) / runtimeFrameWidth))
+      setMobileSnapSize((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(shell)
+    return () => ro.disconnect()
+  }, [useMobileLayoutSnap, runtimeFrameWidth, runtimeFrameHeight])
+
   useLayoutEffect(() => {
     if (!useIOSCanvasRendering) return
     const canvas = canvasRef.current
@@ -647,14 +679,40 @@ export function BettingGrid() {
     useIOSCanvasRendering,
   ])
 
+  /* Snapped box: dimensions come from CSS vars (see game.css) so they win over width:100%!important on mobile. */
+  const gridBoxStyle: CSSProperties =
+    mobileSnapSize && useMobileLayoutSnap
+      ? {
+          minHeight: 0,
+          maxHeight: 'none',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          clipPath: runtimeClipPath,
+        }
+      : {
+          width: runtimeWidthStyle,
+          aspectRatio: `${runtimeFrameWidth} / ${runtimeFrameHeight}`,
+          height: 'auto',
+          minHeight: 0,
+          clipPath: runtimeClipPath,
+        }
+
   return (
     <div
+      ref={gridShellRef}
       className="betting-grid-shell"
       data-perspective={perspective ? 'on' : 'off'}
+      data-mobile-pixel-snap={mobileSnapSize && useMobileLayoutSnap ? 'on' : undefined}
       style={
         {
           '--grid-tilt-angle': `${tiltAngleDeg}deg`,
           '--grid-tilt-scale': `${tiltScale}`,
+          ...(mobileSnapSize && useMobileLayoutSnap
+            ? ({
+                '--betting-grid-snapped-w': `${mobileSnapSize.w}px`,
+                '--betting-grid-snapped-h': `${mobileSnapSize.h}px`,
+              } as CSSProperties)
+            : {}),
           width: runtimeWidthStyle,
         } as CSSProperties
       }
@@ -662,13 +720,7 @@ export function BettingGrid() {
       <div
         className="betting-grid"
         data-render-surface={useMobileAtlasRendering ? 'atlas' : 'live'}
-        style={{
-          width: runtimeWidthStyle,
-          aspectRatio: `${runtimeFrameWidth} / ${runtimeFrameHeight}`,
-          height: 'auto',
-          minHeight: 0,
-          clipPath: runtimeClipPath,
-        }}
+        style={gridBoxStyle}
       >
         {useMobileAtlasRendering ? (
           publishedMobileAtlasSrc ? (
