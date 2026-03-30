@@ -11,7 +11,8 @@ import {
   selectProjectPackage,
   touchInMemoryState,
 } from '../components/grid/builder/storage'
-import { useLocalGridSync } from '../hooks/useLocalGridSync'
+import { useSupabaseGridSync } from '../hooks/useSupabaseGridSync'
+import { isSupabaseAuthEnabled } from '../lib/supabaseClient'
 import {
   GRID_CLOUD_ROOM_STORAGE_KEY,
   isSupabaseGridCloudConfigured,
@@ -601,10 +602,15 @@ export function GridCanvasBuilder() {
     }
   }, [cloudRoomInput])
 
-  const { status: cloudSyncStatus } = useLocalGridSync(projectsState, (loaded) => {
-    setProjectsState(loaded)
-    projectsStateRef.current = loaded
-  }, { autoSync: false })
+  const { status: cloudSyncStatus } = useSupabaseGridSync(
+    projectsState,
+    (loaded) => {
+      setProjectsState(loaded)
+      projectsStateRef.current = loaded
+      touchInMemoryState(loaded)
+    },
+    { autoSync: true },
+  )
   const activeProject = useMemo(
     () =>
       projectsState.projects.find(
@@ -2311,9 +2317,15 @@ export function GridCanvasBuilder() {
               onClick={() => setGridViewState('closed')}
             >Closed</button>
           </div>
-          <div className={`grid-builder__cloud-sync grid-builder__cloud-sync--${cloudSyncStatus}`}>
+          <div
+            className={`grid-builder__cloud-sync grid-builder__cloud-sync--${
+              cloudSyncStatus === 'error' ? 'error' : cloudSyncStatus === 'saving' ? 'saving' : 'saved'
+            }`}
+          >
+            {cloudSyncStatus === 'saving' && (isSupabaseAuthEnabled() ? 'Аккаунт: сохранение…' : 'Сохранение…')}
+            {cloudSyncStatus === 'error' && 'Аккаунт: ошибка записи'}
             {cloudSyncStatus === 'saved' &&
-              (isSupabaseGridCloudConfigured() ? 'Local + Supabase' : 'Local only')}
+              (isSupabaseAuthEnabled() ? 'Проекты: Supabase' : 'Только локально')}
           </div>
           {isSupabaseGridCloudConfigured() ? (
             <div className="grid-builder__cloud-share">

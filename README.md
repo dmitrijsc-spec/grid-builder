@@ -13,6 +13,10 @@ npm run dev
 
 Open **http://localhost:5173** (game), **http://localhost:5173/dev/grid-builder** (builder). On LAN testing, use your machine IP and port shown in the terminal.
 
+## Security
+
+If **secret** API keys were ever pasted into chat or committed, **rotate** them in Supabase (Project Settings → API) and never put `sb_secret_*` in Vite — only publishable/anon in `VITE_*` variables.
+
 ## Supabase (shared grid / playable link)
 
 So people can open **`https://your-deploy/?room=your-secret`** and see the grid you publish from the builder:

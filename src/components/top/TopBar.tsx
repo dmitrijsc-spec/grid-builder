@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ProfileButton } from '../auth/ProfileButton'
 import { useGame } from '../../game/GameContext'
 
 const ICON_FRAME_SRC =
@@ -117,6 +118,7 @@ export function TopBar() {
         <TopIcon label="Help" iconSrc={ICON_HELP_SRC} />
         <TopIcon label="Support" iconSrc={ICON_SUPPORT_SRC} />
         <TopIcon label="Fullscreen" iconSrc={ICON_FULLSCREEN_SRC} />
+        <ProfileButton />
       </div>
 
       <div className="top-bar-mobile" aria-hidden={false}>

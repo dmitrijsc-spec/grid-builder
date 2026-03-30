@@ -131,6 +131,16 @@ export function decodeState(raw: string): GridProjectsState | null {
   }
 }
 
+/** Latest `project.updatedAt` in state — compare with server `updated_at` for sync. */
+export function getProjectsStateFreshnessScore(state: GridProjectsState): number {
+  let maxTs = 0
+  for (const project of state.projects) {
+    const ts = Date.parse(project.updatedAt ?? '')
+    if (Number.isFinite(ts) && ts > maxTs) maxTs = ts
+  }
+  return maxTs
+}
+
 function readWindowNameState(): GridProjectsState | null {
   if (typeof window === 'undefined') return null
   try {

@@ -10,8 +10,10 @@ interface ImportMetaEnv {
   readonly VITE_STREAM_IMAGE?: string
   /** Supabase project URL (shared grid snapshots) */
   readonly VITE_SUPABASE_URL?: string
-  /** Supabase anon key (RLS policies must allow read/write for your use case) */
+  /** Supabase anon key (legacy; optional if publishable is set) */
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Supabase publishable key (preferred for new projects) */
+  readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string
   /** Default grid “room” id when ?room= is omitted */
   readonly VITE_GRID_CLOUD_ROOM?: string
 }

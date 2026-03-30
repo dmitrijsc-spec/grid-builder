@@ -5,7 +5,8 @@ export const GRID_CLOUD_ROOM_STORAGE_KEY = 'iki-builder:cloud-room-id'
 
 export function isSupabaseGridCloudConfigured(): boolean {
   const url = import.meta.env.VITE_SUPABASE_URL
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY
+  const key =
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY
   return Boolean(typeof url === 'string' && url.trim() && typeof key === 'string' && key.trim())
 }
 
@@ -32,7 +33,10 @@ export function getGridCloudRoomForPlay(): string | null {
 const TABLE = 'scibo_grid_snapshots'
 
 function restHeaders(): HeadersInit {
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+  const key = (
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+    ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string)
+  )
   return {
     'Content-Type': 'application/json',
     apikey: key,
