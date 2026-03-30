@@ -726,15 +726,19 @@ export function GridCanvasBuilder() {
 
   const editStateStyle = selectedLayer?.stateStyles[editStateKey]
   const selectedAnimation = selectedLayer?.animation ?? {
+    scope: 'element-state' as const,
     preset: 'none' as const,
     trigger: 'while-active' as const,
     fromState: 'any' as const,
     toState: 'any' as const,
+    fromGridState: 'any' as const,
+    toGridState: 'any' as const,
     durationMs: 220,
     delayMs: 0,
     easing: 'ease-out' as const,
     intensity: 1,
   }
+  const animationScope = selectedAnimation.scope === 'grid-state' ? 'grid-state' : 'element-state'
   // Use stable constant when no layer selected — prevents useEffect from re-running every render
   const enabledStateKeys = selectedLayer?.enabledStates ?? DEFAULT_ENABLED_STATES
   const availableToCreateStates = STATES.filter((state) => !enabledStateKeys.includes(state))
@@ -1009,10 +1013,13 @@ export function GridCanvasBuilder() {
           locked: { visible: true, opacity: 1 },
         },
         animation: {
+          scope: 'element-state',
           preset: 'none',
           trigger: 'while-active',
           fromState: 'any',
           toState: 'any',
+          fromGridState: 'any',
+          toGridState: 'any',
           durationMs: 220,
           delayMs: 0,
           easing: 'ease-out',
@@ -1070,10 +1077,13 @@ export function GridCanvasBuilder() {
         locked: { visible: true, opacity: 1 },
       },
       animation: {
+        scope: 'element-state',
         preset: 'none',
         trigger: 'while-active',
         fromState: 'any',
         toState: 'any',
+        fromGridState: 'any',
+        toGridState: 'any',
         durationMs: 220,
         delayMs: 0,
         easing: 'ease-out',
@@ -3191,6 +3201,37 @@ export function GridCanvasBuilder() {
           <section className="grid-builder__editor-block grid-builder__tool-block">
             <div className="grid-builder__inputs grid-builder__inputs--editor">
               <label>
+                Applies to
+                <select
+                  value={animationScope}
+                  onChange={(e) => {
+                    const next = e.target.value as 'element-state' | 'grid-state'
+                    if (next === 'grid-state') {
+                      updateLayer(selectedLayer.id, {
+                        animation: {
+                          ...selectedAnimation,
+                          scope: 'grid-state',
+                          fromGridState: selectedAnimation.fromGridState ?? 'any',
+                          toGridState: selectedAnimation.toGridState ?? 'closed',
+                        },
+                      })
+                    } else {
+                      updateLayer(selectedLayer.id, {
+                        animation: {
+                          ...selectedAnimation,
+                          scope: 'element-state',
+                          fromState: selectedAnimation.fromState ?? 'any',
+                          toState: selectedAnimation.toState ?? 'any',
+                        },
+                      })
+                    }
+                  }}
+                >
+                  <option value="element-state">Layer states (default, hover, …)</option>
+                  <option value="grid-state">Game grid (open / closed)</option>
+                </select>
+              </label>
+              <label>
                 Preset
                 <select
                   value={selectedAnimation.preset}
@@ -3228,48 +3269,93 @@ export function GridCanvasBuilder() {
                   <option value="on-transition">Only on state transition</option>
                 </select>
               </label>
-              <label>
-                From state
-                <select
-                  value={selectedAnimation.fromState}
-                  onChange={(e) =>
-                    updateLayer(selectedLayer.id, {
-                      animation: {
-                        ...selectedAnimation,
-                        fromState: e.target.value as typeof selectedAnimation.fromState,
-                      },
-                    })
-                  }
-                >
-                  <option value="any">Any</option>
-                  {STATES.map((state) => (
-                    <option key={`from-${state}`} value={state}>
-                      {state}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                To state
-                <select
-                  value={selectedAnimation.toState}
-                  onChange={(e) =>
-                    updateLayer(selectedLayer.id, {
-                      animation: {
-                        ...selectedAnimation,
-                        toState: e.target.value as typeof selectedAnimation.toState,
-                      },
-                    })
-                  }
-                >
-                  <option value="any">Any</option>
-                  {STATES.map((state) => (
-                    <option key={`to-${state}`} value={state}>
-                      {state}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {animationScope === 'element-state' ? (
+                <>
+                  <label>
+                    From state
+                    <select
+                      value={selectedAnimation.fromState}
+                      onChange={(e) =>
+                        updateLayer(selectedLayer.id, {
+                          animation: {
+                            ...selectedAnimation,
+                            fromState: e.target.value as typeof selectedAnimation.fromState,
+                          },
+                        })
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {STATES.map((state) => (
+                        <option key={`from-${state}`} value={state}>
+                          {state}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    To state
+                    <select
+                      value={selectedAnimation.toState}
+                      onChange={(e) =>
+                        updateLayer(selectedLayer.id, {
+                          animation: {
+                            ...selectedAnimation,
+                            toState: e.target.value as typeof selectedAnimation.toState,
+                          },
+                        })
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {STATES.map((state) => (
+                        <option key={`to-${state}`} value={state}>
+                          {state}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label>
+                    From grid
+                    <select
+                      value={selectedAnimation.fromGridState ?? 'any'}
+                      onChange={(e) =>
+                        updateLayer(selectedLayer.id, {
+                          animation: {
+                            ...selectedAnimation,
+                            scope: 'grid-state',
+                            fromGridState: e.target.value as 'open' | 'closed' | 'any',
+                          },
+                        })
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="open">Open</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                  <label>
+                    To grid
+                    <select
+                      value={selectedAnimation.toGridState ?? 'any'}
+                      onChange={(e) =>
+                        updateLayer(selectedLayer.id, {
+                          animation: {
+                            ...selectedAnimation,
+                            scope: 'grid-state',
+                            toGridState: e.target.value as 'open' | 'closed' | 'any',
+                          },
+                        })
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="open">Open</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                </>
+              )}
               <label>
                 Duration (ms)
                 <DeferredNumberInput

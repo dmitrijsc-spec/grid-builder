@@ -13,16 +13,26 @@ export type GridLayerAnimationPreset =
 export type GridLayerAnimationEasing = 'ease' | 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 export type GridLayerAnimationTrigger = 'while-active' | 'on-transition'
 
+/** Layer animation reacts to hover/default/etc. vs whole grid open vs betting-closed. */
+export type GridLayerAnimationScope = 'element-state' | 'grid-state'
+/** Game shell grid phase: open (betting) vs closed (round not betting). */
+export type GridGameViewState = 'open' | 'closed'
+
 export interface GridLayerStateStyle {
   visible: boolean
   opacity: number
 }
 
 export interface GridLayerAnimation {
+  scope?: GridLayerAnimationScope
   preset: GridLayerAnimationPreset
   trigger: GridLayerAnimationTrigger
+  /** When `scope` is element-state (default): transition between these visual states. */
   fromState: GridVisualState | 'any'
   toState: GridVisualState | 'any'
+  /** When `scope` is grid-state: transition when grid goes open ↔ closed. */
+  fromGridState?: GridGameViewState | 'any'
+  toGridState?: GridGameViewState | 'any'
   durationMs: number
   delayMs: number
   easing: GridLayerAnimationEasing

@@ -26,10 +26,13 @@ function makeLayer(partial: Omit<GridLayer, 'stateStyles'>): GridLayer {
       locked: { ...DEFAULT_STATE_STYLES.locked },
     },
     animation: partial.animation ?? {
+      scope: 'element-state',
       preset: 'none',
       trigger: 'while-active',
       fromState: 'any',
       toState: 'any',
+      fromGridState: 'any',
+      toGridState: 'any',
       durationMs: 220,
       delayMs: 0,
       easing: 'ease-out',

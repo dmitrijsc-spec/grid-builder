@@ -17,7 +17,7 @@ import {
   isSupabaseGridCloudConfigured,
   supabasePullGridRuntimePayload,
 } from '../../services/gridCloudSupabase'
-import type { GridPackage, GridVisualState } from './builder/types'
+import type { GridGameViewState, GridPackage, GridVisualState } from './builder/types'
 import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
 
@@ -152,37 +152,17 @@ function resolveLayerVisual(
   }
 }
 
-function layerAnimationStyle(
-  layer: GridPackage['layers'][number],
-  prevState: GridVisualState,
-  state: GridVisualState,
+function animationStyleFromPreset(
+  animation: NonNullable<GridPackage['layers'][number]['animation']>,
+  activeFactor: number,
 ): CSSProperties {
-  const animation = layer.animation ?? {
-    preset: 'none',
-    trigger: 'while-active',
-    fromState: 'any',
-    toState: 'any',
-    durationMs: 220,
-    delayMs: 0,
-    easing: 'ease-out',
-    intensity: 1,
-  }
   if (animation.preset === 'none') return {}
-
-  const fromMatches = animation.fromState === 'any' || animation.fromState === prevState
-  const toMatches = animation.toState === 'any' || animation.toState === state
-  const transitionChanged = prevState !== state
-
-  if (!toMatches) return {}
-  if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
-
-  const activeFactor = state === 'default' ? 0 : 1
   const intensity = Math.max(0, Math.min(3, animation.intensity ?? 1))
   let transform = ''
   let extraOpacity: number | undefined
 
   if (animation.preset === 'fade') {
-    extraOpacity = state === 'default' ? 1 : Math.max(0.1, 1 - 0.35 * intensity)
+    extraOpacity = activeFactor === 0 ? 1 : Math.max(0.1, 1 - 0.35 * intensity)
   } else if (animation.preset === 'zoom-in') {
     transform = `scale(${1 + 0.06 * intensity * activeFactor})`
   } else if (animation.preset === 'zoom-out') {
@@ -202,6 +182,65 @@ function layerAnimationStyle(
   }
 }
 
+function gridScopeActiveFactor(
+  gridState: GridGameViewState,
+  toGridState: GridGameViewState | 'any' | undefined,
+): number {
+  const to = toGridState ?? 'any'
+  if (to === 'any') {
+    return gridState === 'closed' ? 1 : 0
+  }
+  return gridState === to ? 1 : 0
+}
+
+function layerAnimationStyle(
+  layer: GridPackage['layers'][number],
+  prevElementState: GridVisualState,
+  elementState: GridVisualState,
+  prevGridState: GridGameViewState,
+  gridState: GridGameViewState,
+): CSSProperties {
+  const animation = layer.animation ?? {
+    scope: 'element-state',
+    preset: 'none',
+    trigger: 'while-active',
+    fromState: 'any',
+    toState: 'any',
+    fromGridState: 'any',
+    toGridState: 'any',
+    durationMs: 220,
+    delayMs: 0,
+    easing: 'ease-out',
+    intensity: 1,
+  }
+  if (animation.preset === 'none') return {}
+
+  const scope = animation.scope === 'grid-state' ? 'grid-state' : 'element-state'
+
+  if (scope === 'grid-state') {
+    const fromG = animation.fromGridState ?? 'any'
+    const toG = animation.toGridState ?? 'any'
+    const fromMatches = fromG === 'any' || fromG === prevGridState
+    const toMatches = toG === 'any' || toG === gridState
+    const transitionChanged = prevGridState !== gridState
+    if (!toMatches) return {}
+    if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
+
+    const activeFactor = gridScopeActiveFactor(gridState, toG)
+    return animationStyleFromPreset(animation, activeFactor)
+  }
+
+  const fromMatches = animation.fromState === 'any' || animation.fromState === prevElementState
+  const toMatches = animation.toState === 'any' || animation.toState === elementState
+  const transitionChanged = prevElementState !== elementState
+
+  if (!toMatches) return {}
+  if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
+
+  const activeFactor = elementState === 'default' ? 0 : 1
+  return animationStyleFromPreset(animation, activeFactor)
+}
+
 export function BettingGrid() {
   const detectViewportMode = (): 'desktop' | 'mobile' => getRuntimeLayoutMode()
 
@@ -217,6 +256,7 @@ export function BettingGrid() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const canvasImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const previousLayerStateRef = useRef<Record<string, GridVisualState>>({})
+  const previousGlobalGridStateRef = useRef<GridGameViewState>(globalGridState)
   const latestPublishedPackagesRef = useRef<{
     desktop: GridPackage | null
     mobile: GridPackage | null
@@ -496,7 +536,14 @@ export function BettingGrid() {
             activeState,
           )
           const previousState = previousLayerStateRef.current[layer.id] ?? activeState
-          const animationStyle = layerAnimationStyle(layer, previousState, activeState)
+          const prevGrid = previousGlobalGridStateRef.current
+          const animationStyle = layerAnimationStyle(
+            layer,
+            previousState,
+            activeState,
+            prevGrid,
+            globalGridState,
+          )
           const animationOpacity = animationStyle.opacity as number | undefined
           if (!visual.visible) return null
           const shiftedRect = {
@@ -542,6 +589,7 @@ export function BettingGrid() {
       runtimeFrameHeight,
       runtimeOriginX,
       runtimeOriginY,
+      globalGridState,
     ],
   )
   /* eslint-enable react-hooks/refs */
@@ -551,6 +599,10 @@ export function BettingGrid() {
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
+
+  useEffect(() => {
+    previousGlobalGridStateRef.current = globalGridState
+  }, [globalGridState])
   const isMobileRuntime = runtimeDeviceMode === 'mobile'
   const isIOSWebKit = typeof navigator !== 'undefined' && (
     /iP(hone|ad|od)/i.test(navigator.userAgent)

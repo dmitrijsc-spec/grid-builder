@@ -841,10 +841,13 @@ export function normalizeGridPackage(pkg: GridPackage): GridPackage {
       },
       locked: layer.locked ?? false,
       animation: {
+        scope: layer.animation?.scope === 'grid-state' ? 'grid-state' : 'element-state',
         preset: layer.animation?.preset ?? 'none',
         trigger: layer.animation?.trigger ?? 'while-active',
         fromState: layer.animation?.fromState ?? 'any',
         toState: layer.animation?.toState ?? 'any',
+        fromGridState: layer.animation?.fromGridState ?? 'any',
+        toGridState: layer.animation?.toGridState ?? 'any',
         durationMs: layer.animation?.durationMs ?? 220,
         delayMs: layer.animation?.delayMs ?? 0,
         easing: layer.animation?.easing ?? 'ease-out',
