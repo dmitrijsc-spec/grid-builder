@@ -397,11 +397,30 @@ function resolveAtlasBounds(pkg: GridPackage): { originX: number; originY: numbe
   }
 }
 
+const RUNTIME_ATLAS_RESOLUTION_CAP = 4
+
+/**
+ * Raster scale for runtime atlas backing store vs logical grid coordinates.
+ * Floors at `minScale` so publishing from a 1× display still bakes enough pixels for phones;
+ * on Retina builder machines can grow up to `maxScale`.
+ */
+export function resolveRuntimeAtlasResolutionMultiplier(
+  minScale = 2,
+  maxScale = RUNTIME_ATLAS_RESOLUTION_CAP,
+): number {
+  const cap = Math.max(1, maxScale)
+  const floor = Math.max(1, minScale)
+  if (typeof window === 'undefined') return floor
+  const dpr = window.devicePixelRatio || 1
+  const device = Math.min(Math.max(dpr, 1), cap)
+  return Math.max(floor, device)
+}
+
 export async function buildRuntimeAtlasForPackage(
   pkg: GridPackage | null,
   qualityScale = 6,
   maxTextureWidth = 8192,
-  /** 2–3× logical size for retina / zoom; capped by `maxTextureWidth`. */
+  /** Logical→physical atlas scale (see `resolveRuntimeAtlasResolutionMultiplier`); capped by `maxTextureWidth`. */
   resolutionMultiplier = 1,
 ): Promise<GridPackage | null> {
   if (!pkg) return null

@@ -4,6 +4,7 @@ import { createDefaultGridPackage, createEmptyGridPackage } from '../components/
 import {
   buildRuntimeAtlasForPackageWithFallback,
   loadGridProjectsState,
+  resolveRuntimeAtlasResolutionMultiplier,
   mirrorExistingRuntimeSnapshotToDevServer,
   publishGridProjectsState,
   publishRuntimePackages,
@@ -924,19 +925,20 @@ export function GridCanvasBuilder() {
         const active = projectsState.projects.find((p) => p.id === projectsState.activeProjectId)
         const desktopBase = selectProjectPackage(active, 'desktop')
         const mobileBase = selectProjectPackage(active, 'mobile')
-        // Mobile: keep SVG (and other vector) sources — runtime uses an `<img>` stack for sharp zoom/DPR.
-        // Atlas bake still rasterizes for optional `?mobileAtlas=1`, at 3× logical resolution.
+        // Mobile: SVG stack is default; atlas for `?mobileAtlas=1` uses max(2|3×, DPR) bake scale.
+        const desktopAtlasMult = resolveRuntimeAtlasResolutionMultiplier(2)
+        const mobileAtlasMult = resolveRuntimeAtlasResolutionMultiplier(3)
         const { pkg: desktopPkg, error: desktopAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
           desktopBase,
           4,
           8192,
-          2,
+          desktopAtlasMult,
         )
         const { pkg: mobilePkg, error: mobileAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
           mobileBase,
           5,
           8192,
-          3,
+          mobileAtlasMult,
         )
         detailParts.push(
           ...(

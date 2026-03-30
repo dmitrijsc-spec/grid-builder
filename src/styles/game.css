@@ -1324,6 +1324,9 @@
   display: block;
   pointer-events: none;
   z-index: 0;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .betting-grid__atlas {
@@ -1337,7 +1340,8 @@
   object-fit: fill;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  /* High-res atlas from builder + smooth scaling (avoid crisp-edges “pixel/block” look). */
+  transform: translateZ(0);
+  /* Smoother on Chrome/Android; iOS overrides in `@supports` below. */
   image-rendering: auto;
 }
 
@@ -1393,14 +1397,22 @@
   image-rendering: auto;
 }
 
-/* iOS: only disable transitions on layers (child translateZ can rasterize SVGs at wrong res). */
+/* iOS WebKit: suppress transform-hover blur; sharper upscaling than default smooth filters. */
 @supports (-webkit-touch-callout: none) {
-  .betting-grid__asset-layer,
-  .betting-grid__asset,
-  .betting-grid__atlas {
+  .betting-grid__asset-layer {
     transition: none !important;
     will-change: auto !important;
-    image-rendering: auto !important;
+  }
+
+  .betting-grid__asset,
+  .betting-grid__atlas,
+  .betting-grid__canvas {
+    transition: none !important;
+    will-change: auto !important;
+    image-rendering: -webkit-optimize-contrast !important;
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
   }
 }
 

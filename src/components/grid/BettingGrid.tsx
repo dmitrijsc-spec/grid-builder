@@ -569,6 +569,10 @@ export function BettingGrid() {
   const allowMobileAtlas = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
     : false
+  const iosCanvasParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('iosCanvas')
+      : null
   const publishedMobileAtlasSrc =
     gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
     ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
@@ -579,9 +583,10 @@ export function BettingGrid() {
     isMobileRuntime
     && Boolean(publishedMobileAtlasSrc)
     && allowMobileAtlas
+  // iOS: single canvas compositor by default (`iosCanvas=0` to force `<img>` stack).
   const allowIOSCanvasFallback =
     typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('iosCanvas') === '1'
+    && (iosCanvasParam === '1' || (isIOSWebKit && iosCanvasParam !== '0'))
   const useIOSCanvasRendering = allowIOSCanvasFallback && isIOSWebKit && !useMobileAtlasRendering
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
@@ -622,8 +627,9 @@ export function BettingGrid() {
 
     const draw = () => {
       const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 4))
-      const cssWidth = Math.max(1, Math.round(canvas.clientWidth))
-      const cssHeight = Math.max(1, Math.round(canvas.clientHeight))
+      const rect = canvas.getBoundingClientRect()
+      const cssWidth = Math.max(1, Math.round(rect.width))
+      const cssHeight = Math.max(1, Math.round(rect.height))
       const physicalWidth = Math.max(1, Math.round(cssWidth * dpr))
       const physicalHeight = Math.max(1, Math.round(cssHeight * dpr))
       if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
