@@ -308,6 +308,11 @@ function broadcastGridPackage(detail: {
 
 function detectMobileRuntime(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('forceMobile') === '1') return true
+  if (params.get('forceDesktop') === '1') return false
+
   const ua = window.navigator.userAgent ?? ''
   const uaDataMobile = (window.navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile
   if (uaDataMobile === true) return true
@@ -318,14 +323,15 @@ function detectMobileRuntime(): boolean {
 
   // UA-only detection misses: in-app browsers, “Request Desktop Website”, some Wi‑Fi test setups.
   if (typeof window.matchMedia === 'function') {
+    const touchCapable = maxTouchPoints > 0
+    const noHover = window.matchMedia('(hover: none)').matches
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+    const narrow = window.matchMedia('(max-width: 1024px)').matches
+    // iPhone “Desktop website”: ~980px wide, still touch + no hover; avoids desktop grid there.
+    if (touchCapable && narrow && (noHover || coarsePointer)) return true
     if (window.matchMedia('(max-width: 900px)').matches) return true
-    // Touch-first device with a not-huge viewport (e.g. iPhone desktop mode ~980–1024px wide).
-    if (
-      window.matchMedia('(pointer: coarse)').matches &&
-      window.matchMedia('(max-width: 1280px)').matches
-    ) {
-      return true
-    }
+    // Touch-first device with a not-huge viewport (e.g. iPad split view).
+    if (coarsePointer && window.matchMedia('(max-width: 1280px)').matches) return true
   }
   return false
 }
