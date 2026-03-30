@@ -19,6 +19,7 @@ import { pushRuntimeSnapshotToSupabaseFromBrowser } from '../services/gridCloudS
 import type { BetZoneId } from '../game/types'
 import {
   builderPreviewFrameStyle,
+  layerAnimationStyle,
   resolvePreviewElementEndpoints,
   resolvePreviewGridEndpoints,
 } from '../components/grid/builder/layerAnimation'
@@ -656,6 +657,7 @@ export function GridCanvasBuilder() {
   }
   const [animationPreview, setAnimationPreview] = useState<AnimationPreview | null>(null)
   const animationPreviewClearRef = useRef<number | null>(null)
+  const previousBuilderGridRef = useRef<GridGameViewState>(gridViewState)
   const [rulersEnabled, setRulersEnabled] = useState(true)
   const preserveSvgCoordinates = true
   const [viewportWidth, setViewportWidth] = useState<number>(
@@ -811,6 +813,10 @@ export function GridCanvasBuilder() {
       }
     }
   }, [animationPreview, pkg.layers])
+
+  useEffect(() => {
+    previousBuilderGridRef.current = gridViewState
+  }, [gridViewState])
 
   const runAnimationPreview = useCallback(() => {
     if (!selectedLayer) return
@@ -2961,8 +2967,31 @@ export function GridCanvasBuilder() {
                     ? (layer.globalVisibility?.open ?? true)
                     : (layer.globalVisibility?.closed ?? true)
                 if (!styleByState.visible || !globalVisible) return null
+                const previewTarget = Boolean(animationPreview && animationPreview.layerId === layer.id)
+                const isolateDim =
+                  animationPreview && !previewTarget ? 0.12 : 1
+                let transitAnim: CSSProperties
+                if (!animationPreview) {
+                  transitAnim = layerAnimationStyle(
+                    layer,
+                    stateKey,
+                    stateKey,
+                    previousBuilderGridRef.current,
+                    gridVis,
+                  )
+                } else if (!previewTarget) {
+                  transitAnim = layerAnimationStyle(
+                    layer,
+                    stateKey,
+                    stateKey,
+                    gridViewState,
+                    gridViewState,
+                  )
+                } else {
+                  transitAnim = {}
+                }
                 let previewAnimStyle: CSSProperties | undefined
-                if (animationPreview?.layerId === layer.id) {
+                if (previewTarget) {
                   const anim = layer.animation
                   if (anim && anim.preset !== 'none') {
                     const animScope = anim.scope === 'grid-state' ? 'grid-state' : 'element-state'
@@ -2983,6 +3012,13 @@ export function GridCanvasBuilder() {
                     )
                   }
                 }
+                const tOp = typeof transitAnim.opacity === 'number' ? transitAnim.opacity : undefined
+                const pOp =
+                  typeof previewAnimStyle?.opacity === 'number' ? previewAnimStyle.opacity : undefined
+                const mergedAnim: CSSProperties = { ...transitAnim, ...previewAnimStyle }
+                if (tOp !== undefined || pOp !== undefined) {
+                  mergedAnim.opacity = (tOp ?? 1) * (pOp ?? 1)
+                }
                 return (
                   <CanvasLayer
                     key={layer.id}
@@ -2993,9 +3029,9 @@ export function GridCanvasBuilder() {
                     top={rect.y * previewScale}
                     width={rect.width * previewScale}
                     height={rect.height * previewScale}
-                    opacity={styleByState.opacity}
-                    zIndex={layer.zIndex}
-                    animationStyle={previewAnimStyle}
+                    opacity={styleByState.opacity * isolateDim}
+                    zIndex={previewTarget ? layer.zIndex + 1000 : layer.zIndex}
+                    animationStyle={Object.keys(mergedAnim).length > 0 ? mergedAnim : undefined}
                   />
                 )
               })}

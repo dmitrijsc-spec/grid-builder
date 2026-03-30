@@ -1274,7 +1274,8 @@
 /* --- Betting grid + perspective --- */
 .betting-grid-shell {
   position: relative;
-  perspective: 1200px;
+  /* Default flat: no 3D ancestor. A permanent perspective here made WebKit rasterize SVG <img> layers at low res on iOS even with rotateX(0). */
+  perspective: none;
   perspective-origin: 50% 35%;
   isolation: isolate;
   contain: layout;
@@ -1285,17 +1286,21 @@
   margin-inline: auto;
 }
 
+.betting-grid-shell[data-perspective='on'] {
+  perspective: 1200px;
+  perspective-origin: 50% 35%;
+}
+
 .betting-grid {
   position: relative;
   z-index: 2;
   /* Flat off-tilt; preserve-3d when tilted — matches builder `.grid-builder__canvas`. */
   transform-style: flat;
   transition: transform var(--grid-transition);
-  will-change: transform;
+  will-change: auto;
   backface-visibility: hidden;
   transform-origin: center bottom;
-  /* Promotes tilted grid to its own composited layer (pairs with perspective on shell). */
-  transform: translateZ(0);
+  transform: none;
   border-radius: 22px;
   border: 0;
   background: transparent;
@@ -1425,11 +1430,13 @@
 }
 
 .betting-grid-shell[data-perspective='off'] .betting-grid {
-  transform: translateZ(0) rotateX(0deg) translateY(0) scale(1);
+  transform: none;
+  will-change: auto;
 }
 
 .betting-grid-shell[data-perspective='on'] .betting-grid {
   transform-style: preserve-3d;
+  will-change: transform;
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 56deg)) translateY(0)
     scale(var(--grid-tilt-scale, 0.97));
   -webkit-backface-visibility: hidden;
@@ -2164,7 +2171,8 @@ button:focus-visible {
   .betting-grid-shell[data-perspective='off'] .betting-grid {
     width: 100% !important;
     max-width: 100% !important;
-    transform: translateZ(0) translateY(0) scale(1);
+    transform: none;
+    will-change: auto;
     transform-origin: center bottom;
   }
 
@@ -2316,7 +2324,8 @@ button:focus-visible {
 .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'] .betting-grid {
   width: 100% !important;
   max-width: 100% !important;
-  transform: translateZ(0) translateY(0) scale(1);
+  transform: none;
+  will-change: auto;
   transform-origin: center bottom;
 }
 
@@ -2345,13 +2354,20 @@ button:focus-visible {
 }
 
   .betting-grid-shell {
-    perspective: 1200px;
-    perspective-origin: 50% 35%;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     transform: none;
+  }
+
+  .betting-grid-shell[data-perspective='on'] {
+    perspective: 1200px;
+    perspective-origin: 50% 35%;
+  }
+
+  .betting-grid-shell[data-perspective='off'] {
+    perspective: none;
   }
 
   .betting-grid {
@@ -3781,11 +3797,18 @@ button:focus-visible {
     linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 20px 20px;
   transform-style: preserve-3d;
-  transition: transform 0.35s ease;
+  transform: translateZ(0);
+  transform-origin: center bottom;
+  filter: brightness(1);
+  /* Match game `.betting-grid` shell transition (tokens.css `--grid-transition`). */
+  transition:
+    transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)),
+    filter var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .grid-builder__canvas-stage.is-tilted .grid-builder__canvas {
-  transform: rotateX(var(--builder-tilt-angle, 56deg)) translateY(-4px) scale(0.97);
+  transform: translateZ(0) rotateX(var(--builder-tilt-angle, 56deg)) translateY(0)
+    scale(0.97);
   transform-origin: center bottom;
 }
 

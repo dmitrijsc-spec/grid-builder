@@ -554,11 +554,15 @@ export function BettingGrid() {
     && Boolean(publishedMobileAtlasSrc)
     && allowMobileAtlas
     && mobileAtlasOkOnIOS
-  // iOS: canvas compositor by default (DPR-sized backing store). `?iosCanvas=0` forces `<img>` stack (max SVG sharpness).
+  // iOS WebKit: `perspective` + `rotateX` on `.betting-grid` rasterizes descendants at low res; `<canvas>` is worst.
+  // Default: `<img>` SVG stack (`?iosCanvas=1` enables canvas only while the scene is flat, e.g. betting open).
   const allowIOSCanvasFallback =
-    typeof window !== 'undefined'
-    && (iosCanvasParam === '1' || (isIOSWebKit && iosCanvasParam !== '0'))
-  const useIOSCanvasRendering = allowIOSCanvasFallback && isIOSWebKit && !useMobileAtlasRendering
+    typeof window !== 'undefined' && iosCanvasParam === '1'
+  const useIOSCanvasRendering =
+    allowIOSCanvasFallback
+    && isIOSWebKit
+    && !useMobileAtlasRendering
+    && !perspective
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
   const tiltAngleDeg = baseTiltAngle
@@ -599,17 +603,17 @@ export function BettingGrid() {
     const draw = () => {
       const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 4))
       const rect = canvas.getBoundingClientRect()
-      const cssWidth = Math.max(1, Math.round(rect.width))
-      const cssHeight = Math.max(1, Math.round(rect.height))
-      const physicalWidth = Math.max(1, Math.round(cssWidth * dpr))
-      const physicalHeight = Math.max(1, Math.round(cssHeight * dpr))
+      const cssWidth = Math.max(1e-6, rect.width)
+      const cssHeight = Math.max(1e-6, rect.height)
+      const physicalWidth = Math.max(1, Math.ceil(cssWidth * dpr))
+      const physicalHeight = Math.max(1, Math.ceil(cssHeight * dpr))
       if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
         canvas.width = physicalWidth
         canvas.height = physicalHeight
       }
       const ctx = canvas.getContext('2d')
       if (!ctx) return
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.setTransform(physicalWidth / cssWidth, 0, 0, physicalHeight / cssHeight, 0, 0)
       ctx.clearRect(0, 0, cssWidth, cssHeight)
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = 'high'
