@@ -19,6 +19,30 @@ const PART_CHAR_SLICE = 420_000
 
 export type GridCloudSyncStatus = 'saved' | 'saving' | 'error'
 
+function errMsg(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return String(err)
+}
+
+function isMissingPartsTableError(err: unknown): boolean {
+  const m = errMsg(err)
+  return (
+    m.includes('scibo_user_grid_project_parts')
+    || m.includes('Could not find the table')
+    || (m.includes('does not exist') && m.toLowerCase().includes('parts'))
+  )
+}
+
+function isMissingPartsCountColumnError(err: unknown): boolean {
+  const m = errMsg(err)
+  return m.includes('parts_count')
+}
+
+const MIGRATION_HINT =
+  'Run SQL migration: supabase/migrations/20260330223000_scibo_user_grid_project_parts.sql (Supabase Dashboard → SQL).'
+
 function splitEncodedPayload(encoded: string): string[] {
   if (encoded.length <= MAX_SINGLE_REQUEST_PAYLOAD_CHARS) return [encoded]
   const out: string[] = []
@@ -32,11 +56,11 @@ async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt
   if (!supabase) return null
   const { data, error } = await supabase
     .from(TABLE)
-    .select('payload, parts_count, updated_at')
+    .select('*')
     .eq('user_id', userId)
     .maybeSingle()
   if (error || !data) return null
-  const row = data as { payload: string | null; parts_count: number | null; updated_at: string }
+  const row = data as { payload: string | null; parts_count?: number | null; updated_at: string }
   const partsCount = typeof row.parts_count === 'number' ? row.parts_count : 0
   if (partsCount > 0) {
     const { data: parts, error: pErr } = await supabase
@@ -44,8 +68,11 @@ async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt
       .select('part_index, content')
       .eq('user_id', userId)
       .order('part_index', { ascending: true })
-    if (pErr || !parts?.length) return null
-    if (parts.length !== partsCount) return null
+    if (pErr) {
+      if (isMissingPartsTableError(pErr)) return null
+      return null
+    }
+    if (!parts?.length || parts.length !== partsCount) return null
     const payload = parts.map((p) => (p as { content: string }).content).join('')
     if (!payload.startsWith('lz16:')) return null
     return { payload, updatedAt: row.updated_at }
@@ -56,23 +83,42 @@ async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt
 
 async function upsertRemote(userId: string, state: GridProjectsState): Promise<void> {
   if (!supabase) return
+  const sb = supabase
   const encoded = encodeState(state)
   const parts = splitEncodedPayload(encoded)
 
-  const { error: delPartsErr } = await supabase.from(PARTS_TABLE).delete().eq('user_id', userId)
-  if (delPartsErr) throw delPartsErr
-
   if (parts.length === 1) {
-    const { error } = await supabase.from(TABLE).upsert(
-      { user_id: userId, payload: parts[0], parts_count: 0 },
-      { onConflict: 'user_id' },
-    )
-    if (error) throw error
+    const { error: delErr } = await sb.from(PARTS_TABLE).delete().eq('user_id', userId)
+    if (delErr && !isMissingPartsTableError(delErr)) throw delErr
+
+    const tryUpsert = async (includePartsCount: boolean) => {
+      const row: Record<string, unknown> = {
+        user_id: userId,
+        payload: parts[0],
+      }
+      if (includePartsCount) row.parts_count = 0
+      return sb.from(TABLE).upsert(row as never, { onConflict: 'user_id' })
+    }
+    let up = await tryUpsert(true)
+    if (up.error && isMissingPartsCountColumnError(up.error)) {
+      up = await tryUpsert(false)
+    }
+    if (up.error) throw up.error
     return
   }
 
+  const { error: delPartsErr } = await sb.from(PARTS_TABLE).delete().eq('user_id', userId)
+  if (delPartsErr) {
+    if (isMissingPartsTableError(delPartsErr)) {
+      throw new Error(
+        `Project is too large for a single cloud row (${encoded.length} chars). ${MIGRATION_HINT}`,
+      )
+    }
+    throw delPartsErr
+  }
+
   for (let i = 0; i < parts.length; i += 1) {
-    const { error: insErr } = await supabase.from(PARTS_TABLE).insert({
+    const { error: insErr } = await sb.from(PARTS_TABLE).insert({
       user_id: userId,
       part_index: i,
       content: parts[i],
@@ -80,11 +126,21 @@ async function upsertRemote(userId: string, state: GridProjectsState): Promise<v
     if (insErr) throw insErr
   }
 
-  const { error } = await supabase.from(TABLE).upsert(
-    { user_id: userId, payload: '', parts_count: parts.length },
-    { onConflict: 'user_id' },
-  )
-  if (error) throw error
+  const tryMain = async (includePartsCount: boolean) => {
+    const row: Record<string, unknown> = {
+      user_id: userId,
+      payload: '',
+    }
+    if (includePartsCount) row.parts_count = parts.length
+    return sb.from(TABLE).upsert(row as never, { onConflict: 'user_id' })
+  }
+  let main = await tryMain(true)
+  if (main.error && isMissingPartsCountColumnError(main.error)) {
+    throw new Error(
+      `Chunked save requires column parts_count on ${TABLE}. ${MIGRATION_HINT}`,
+    )
+  }
+  if (main.error) throw main.error
 }
 
 /**

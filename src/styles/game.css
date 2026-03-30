@@ -1447,6 +1447,17 @@
   margin-bottom: 0 !important;
 }
 
+/* iOS phones: strict contain/isolation + stacking around the grid tends to force an extra composited bitmap
+   and softens SVG-in-<img> edges. Loosen only in the mobile band where the betting grid is full-width. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 900px) {
+    .betting-grid-shell {
+      isolation: auto;
+      contain: none;
+    }
+  }
+}
+
 .bet-cell {
   position: relative;
   border: 1px solid transparent;

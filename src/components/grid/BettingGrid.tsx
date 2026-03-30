@@ -22,9 +22,6 @@ import type { GridGameViewState, GridPackage, GridVisualState } from './builder/
 import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
 
-/** iOS: PNG atlas skips per-layer SVG `<img>` rasterization; allow atlas only when layer count exceeds this (`?mobileAtlas=1` still required). */
-const MOBILE_ATLAS_IOS_MIN_LAYER_COUNT = 50
-
 function BetCell({
   zone,
   className = '',
@@ -525,9 +522,9 @@ export function BettingGrid() {
   )
   const closedMode = gridPackage.global?.closedMode ?? 'tilted'
   const usePerspectiveShell = closedMode === 'tilted'
-  // Keep 3D shell on for the whole session when the package uses tilt-when-closed so `perspective` does not
-  // pop in/out with phase (that snaps and fights transform interpolation). Animate only CSS vars on `.betting-grid`.
-  const perspective = usePerspectiveShell
+  // Desktop/Android: 3D shell for smooth tilt. iPhone WebKit: skip perspective + rotateX — it rasterizes the
+  // whole SVG <img> stack at low res (blurry/pixelated) even at rotateX(0deg). Flat shell keeps vectors sharp at DPR.
+  const perspective = usePerspectiveShell && !(isMobileRuntime && isIOSWebKit)
   // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
@@ -547,16 +544,13 @@ export function BettingGrid() {
     gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
     ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
     ?? null
-  const layerCount = gridPackage.layers.length
-  const mobileAtlasOkOnIOS =
-    !isIOSWebKit || layerCount > MOBILE_ATLAS_IOS_MIN_LAYER_COUNT
-  // Mobile: default is vector `<img>` stack. PNG atlas only with `?mobileAtlas=1` and published atlas.
-  // iOS WebKit: same, unless layer count is high (atlas reduces many DOM images / decode pressure).
+  // Mobile PNG atlas (optional `?mobileAtlas=1`) is for Android-class browsers; iOS keeps SVG `<img>`
+  // stack so the engine rasterizes vectors at device DPR (sharp grid vs blurry baked atlas).
   const useMobileAtlasRendering =
     isMobileRuntime
+    && !isIOSWebKit
     && Boolean(publishedMobileAtlasSrc)
     && allowMobileAtlas
-    && mobileAtlasOkOnIOS
   // iOS WebKit: `perspective` + `rotateX` on `.betting-grid` rasterizes descendants at low res; `<canvas>` is worst.
   // Default: `<img>` SVG stack (`?iosCanvas=1` enables canvas only while the scene is flat, e.g. betting open).
   const allowIOSCanvasFallback =
