@@ -26,6 +26,34 @@ function errMsg(err: unknown): string {
   return String(err)
 }
 
+/** PostgREST / Supabase client often rejects with a plain object, not `instanceof Error`. */
+function formatSupabaseSyncError(e: unknown): string {
+  if (e == null || e === undefined) return 'Unknown error'
+  if (typeof e === 'string') return e
+  if (e instanceof Error) return e.message.trim() || e.name || 'Error'
+  if (typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    const bits: string[] = []
+    if (typeof o.code === 'string' && o.code) bits.push(o.code)
+    if (typeof o.message === 'string' && o.message) bits.push(o.message)
+    if (typeof o.details === 'string' && o.details) bits.push(o.details)
+    if (typeof o.hint === 'string' && o.hint) bits.push(o.hint)
+    if (bits.length) return bits.join(' — ')
+    try {
+      const s = JSON.stringify(o)
+      if (s && s !== '{}') return s.length > 280 ? `${s.slice(0, 280)}…` : s
+    } catch {
+      /* noop */
+    }
+    return errMsg(e)
+  }
+  try {
+    return String(e)
+  } catch {
+    return 'Unknown error'
+  }
+}
+
 function isMissingPartsTableError(err: unknown): boolean {
   const m = errMsg(err)
   return (
@@ -208,8 +236,7 @@ export function useSupabaseGridSync(
         }
       } catch (e) {
         mergedSessionRef.current = undefined
-        const msg = e && typeof (e as { message?: string }).message === 'string' ? (e as Error).message : 'merge failed'
-        setLastError(msg)
+        setLastError(formatSupabaseSyncError(e) || 'merge failed')
       }
     })()
     return () => {
@@ -233,7 +260,7 @@ export function useSupabaseGridSync(
         })
         .catch((e) => {
           setStatus('error')
-          setLastError(e instanceof Error ? e.message : String(e))
+          setLastError(formatSupabaseSyncError(e))
         })
     }, autosyncMs)
     return () => window.clearTimeout(t)
@@ -267,7 +294,7 @@ export function useSupabaseGridSync(
       return true
     } catch (e) {
       setStatus('error')
-      setLastError(e instanceof Error ? e.message : String(e))
+      setLastError(formatSupabaseSyncError(e))
       return false
     }
   }, [session])
