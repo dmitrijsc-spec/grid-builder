@@ -112,8 +112,10 @@ export function resolvePreviewGridEndpoints(anim: GridLayerAnimation): {
   from: GridGameViewState
   to: GridGameViewState
 } {
-  const from = anim.fromGridState === 'any' ? 'open' : anim.fromGridState
-  let to = anim.toGridState === 'any' ? 'closed' : anim.toGridState
+  const rawFrom = anim.fromGridState ?? 'any'
+  const rawTo = anim.toGridState ?? 'any'
+  const from: GridGameViewState = rawFrom === 'any' ? 'open' : rawFrom
+  let to: GridGameViewState = rawTo === 'any' ? 'closed' : rawTo
   if (from === to) {
     to = from === 'open' ? 'closed' : 'open'
   }
