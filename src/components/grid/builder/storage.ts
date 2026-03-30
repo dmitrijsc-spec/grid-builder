@@ -15,13 +15,13 @@ export const DEV_RUNTIME_PACKAGES_URL = '/__iki/dev-runtime-packages'
 export const GRID_PACKAGE_EVENT = 'iki-builder:grid-package:updated'
 export const GRID_PACKAGE_BROADCAST_CHANNEL = 'iki-builder:grid-package:channel'
 
-/** Stable title for selectors (admin + builder). Handles empty `name` or legacy drift vs `pkg.meta.name`. */
+/** Stable title for selectors (admin + builder). Prefer package meta — Grid Settings edits `pkg.meta.name`; `project.name` can lag after multi-device merges. */
 export function displayGridProjectName(project: GridProject): string {
-  const top = project.name?.trim() ?? ''
   const desk = project.pkg?.meta?.name?.trim() ?? ''
+  const top = project.name?.trim() ?? ''
   const mob = project.mobilePkg?.meta?.name?.trim() ?? ''
-  if (top) return top
   if (desk) return desk
+  if (top) return top
   if (mob) return mob
   return 'Untitled grid'
 }

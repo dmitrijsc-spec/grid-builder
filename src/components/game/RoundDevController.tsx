@@ -77,8 +77,10 @@ export function RoundDevController({
       const lScore = getProjectsStateFreshnessScore(local)
       const rScore = getProjectsStateFreshnessScore(remote)
       const serverTs = Date.parse(serverUpdatedAt)
-      // Supabase row time advances on every save; beats max(project.updatedAt) when another project stayed "newer".
-      const serverNewerThanLocal = Number.isFinite(serverTs) && serverTs > lScore
+      // Phone clock often runs ahead of Postgres `updated_at`, or timestamps fall in the same second — strict `>` skips a fresh row.
+      const SERVER_VS_LOCAL_SLOP_MS = 120_000 // 2 min slack
+      const serverNewerThanLocal =
+        Number.isFinite(serverTs) && serverTs + SERVER_VS_LOCAL_SLOP_MS > lScore
       if (serverNewerThanLocal || rScore > lScore) {
         adoptRemoteProjects(remote)
       }

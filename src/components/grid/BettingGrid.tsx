@@ -176,7 +176,11 @@ export function BettingGrid() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const canvasImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const previousLayerStateRef = useRef<Record<string, GridVisualState>>({})
-  const previousGlobalGridStateRef = useRef<GridGameViewState>(globalGridState)
+  /** Last committed grid open/closed; updated in useLayoutEffect so animation can read a stable "from" state. */
+  const prevGridForAnimationRef = useRef<GridGameViewState>(globalGridState)
+  /** Bumps only when grid or hover changes so layer useMemo runs twice: transition frame, then settled (fixes stuck on-transition CSS). */
+  const [layerAnimationLayoutFlush, setLayerAnimationLayoutFlush] = useState(0)
+  const prevAnimationSyncRef = useRef({ grid: globalGridState, hover: hoveredZoneId })
   const latestPublishedPackagesRef = useRef<{
     desktop: GridPackage | null
     mobile: GridPackage | null
@@ -456,7 +460,7 @@ export function BettingGrid() {
             activeState,
           )
           const previousState = previousLayerStateRef.current[layer.id] ?? activeState
-          const prevGrid = previousGlobalGridStateRef.current
+          const prevGrid = prevGridForAnimationRef.current
           const animationStyle = layerAnimationStyle(
             layer,
             previousState,
@@ -509,20 +513,30 @@ export function BettingGrid() {
       runtimeFrameHeight,
       runtimeOriginX,
       runtimeOriginY,
-      globalGridState,
+      layerAnimationLayoutFlush,
     ],
   )
   /* eslint-enable react-hooks/refs */
+
+  useLayoutEffect(() => {
+    const sync = prevAnimationSyncRef.current
+    const gridChanged = sync.grid !== globalGridState
+    const hoverChanged = sync.hover !== hoveredZoneId
+    if (prevGridForAnimationRef.current !== globalGridState) {
+      prevGridForAnimationRef.current = globalGridState
+    }
+    sync.grid = globalGridState
+    sync.hover = hoveredZoneId
+    if (gridChanged || hoverChanged) {
+      setLayerAnimationLayoutFlush((n) => n + 1)
+    }
+  }, [globalGridState, hoveredZoneId])
 
   useEffect(() => {
     const next: Record<string, GridVisualState> = {}
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
-
-  useEffect(() => {
-    previousGlobalGridStateRef.current = globalGridState
-  }, [globalGridState])
   const isMobileRuntime = runtimeDeviceMode === 'mobile'
   const isIOSWebKit = typeof navigator !== 'undefined' && (
     /iP(hone|ad|od)/i.test(navigator.userAgent)
