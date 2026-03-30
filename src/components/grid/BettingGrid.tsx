@@ -348,7 +348,8 @@ export function BettingGrid() {
       }
     }
     void poll()
-    const id = window.setInterval(poll, 4000)
+    // Faster propagation for QA devices (mobile) without relying on reloads.
+    const id = window.setInterval(poll, 1500)
     const onBecameVisible = () => {
       if (!document.hidden) void poll()
     }
@@ -550,7 +551,13 @@ export function BettingGrid() {
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
-  const perspective = isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
+  const isMobileRuntime = runtimeDeviceMode === 'mobile'
+  const isIOSWebKit = typeof navigator !== 'undefined' && (
+    /iP(hone|ad|od)/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1)
+  )
+  // Quality-first: disable perspective on mobile to avoid GPU raster blur on vector layers.
+  const perspective = !isMobileRuntime && isClosed && (gridPackage.global?.closedMode ?? 'tilted') === 'tilted'
   const runtimeScale =
     (typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
       ? gridPackage.frame.scale
@@ -558,34 +565,41 @@ export function BettingGrid() {
   const runtimeWidthPx = runtimeFrameWidth * runtimeScale
   const runtimeWidthStyle = `${runtimeWidthPx}px`
   const runtimeClipPath = 'none'
-  const isMobileRuntime = runtimeDeviceMode === 'mobile'
+  const allowMobileAtlas = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
+    : false
   const publishedMobileAtlasSrc =
     gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
     ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
     ?? null
-  // Mobile runtime renders a prebuilt atlas generated during builder publish.
-  const useMobileAtlasRendering = isMobileRuntime && Boolean(publishedMobileAtlasSrc)
+  // Mobile default: vector-friendly `<img>` stack (SVG stays sharp at any DPR/zoom).
+  // Single PNG atlas only when `?mobileAtlas=1` (higher-res atlas is baked in the builder).
+  const useMobileAtlasRendering =
+    isMobileRuntime
+    && Boolean(publishedMobileAtlasSrc)
+    && allowMobileAtlas
+  const allowIOSCanvasFallback =
+    typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('iosCanvas') === '1'
+  const useIOSCanvasRendering = allowIOSCanvasFallback && isIOSWebKit && !useMobileAtlasRendering
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
-  // Mobile keeps the tilt feature, but with a slightly softer angle and no extra downscale.
-  // This reduces GPU raster blur while preserving the closed-state perspective effect.
-  const tiltAngleDeg = runtimeDeviceMode === 'mobile' ? Math.min(baseTiltAngle, 48) : baseTiltAngle
-  const tiltScale = runtimeDeviceMode === 'mobile' ? 1 : 0.97
-  const runtimeOversampleScale = 1
+  const tiltAngleDeg = isMobileRuntime ? 0 : baseTiltAngle
+  const tiltScale = isMobileRuntime ? 1 : 0.97
 
   useEffect(() => {
+    if (!useIOSCanvasRendering) return
     let cancelled = false
     const imageCache = canvasImagesRef.current
     const pending = renderLayers
       .map((layer) => layer.src)
       .filter((src, index, arr) => arr.indexOf(src) === index)
       .filter((src) => !imageCache.has(src))
-
     if (pending.length === 0) return
 
     for (const src of pending) {
       const img = new Image()
-      img.decoding = 'async'
+      img.decoding = 'sync'
       img.onload = () => {
         if (cancelled) return
         if (!imageCache.has(src)) {
@@ -595,40 +609,35 @@ export function BettingGrid() {
       }
       img.src = src
     }
-
     return () => {
       cancelled = true
     }
-  }, [renderLayers])
+  }, [renderLayers, useIOSCanvasRendering])
 
   useLayoutEffect(() => {
-    if (useMobileAtlasRendering) return
+    if (!useIOSCanvasRendering) return
     const canvas = canvasRef.current
     if (!canvas) return
 
     const draw = () => {
-      const dpr = window.devicePixelRatio || 1
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 4))
       const cssWidth = Math.max(1, Math.round(canvas.clientWidth))
       const cssHeight = Math.max(1, Math.round(canvas.clientHeight))
-      const renderScale = runtimeOversampleScale
-      const physicalWidth = Math.max(1, Math.round(cssWidth * dpr * renderScale))
-      const physicalHeight = Math.max(1, Math.round(cssHeight * dpr * renderScale))
-
+      const physicalWidth = Math.max(1, Math.round(cssWidth * dpr))
+      const physicalHeight = Math.max(1, Math.round(cssHeight * dpr))
       if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
         canvas.width = physicalWidth
         canvas.height = physicalHeight
       }
-
       const ctx = canvas.getContext('2d')
       if (!ctx) return
-      ctx.setTransform(dpr * renderScale, 0, 0, dpr * renderScale, 0, 0)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, cssWidth, cssHeight)
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = 'high'
 
       const scaleX = cssWidth / runtimeFrameWidth
       const scaleY = cssHeight / runtimeFrameHeight
-
       for (const layer of renderLayers) {
         const img = canvasImagesRef.current.get(layer.src)
         if (!img) continue
@@ -648,19 +657,15 @@ export function BettingGrid() {
     }
 
     draw()
-    const resizeObserver = new ResizeObserver(() => draw())
+    const resizeObserver = new ResizeObserver(draw)
     resizeObserver.observe(canvas)
-
-    return () => {
-      resizeObserver.disconnect()
-    }
+    return () => resizeObserver.disconnect()
   }, [
     imageCacheVersion,
     renderLayers,
     runtimeFrameHeight,
     runtimeFrameWidth,
-    runtimeOversampleScale,
-    useMobileAtlasRendering,
+    useIOSCanvasRendering,
   ])
 
   return (
@@ -701,8 +706,23 @@ export function BettingGrid() {
               <span className="betting-grid__mobile-atlas-flag" aria-hidden>ATLAS</span>
             </>
           ) : null
-        ) : (
+        ) : useIOSCanvasRendering ? (
           <canvas ref={canvasRef} className="betting-grid__canvas" aria-hidden />
+        ) : (
+          <div className="betting-grid__asset-layer" aria-hidden>
+            {renderLayers.map((layer) => (
+              <img
+                key={`${layer.id}:${layer.activeState}:${layer.src}`}
+                className="betting-grid__asset"
+                src={layer.src}
+                alt=""
+                draggable={false}
+                decoding="async"
+                loading="eager"
+                style={layer.style}
+              />
+            ))}
+          </div>
         )}
         <div className="betting-grid__zones">
           {runtimeZones.map((zone) => {

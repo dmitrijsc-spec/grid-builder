@@ -5,6 +5,7 @@ import {
   decodeState,
   encodeState,
   getProjectsStateFreshnessScore,
+  hasPersistedGridProjectsState,
   touchInMemoryState,
 } from '../components/grid/builder/storage'
 import { isSupabaseAuthEnabled, supabase } from '../lib/supabaseClient'
@@ -77,6 +78,13 @@ export function useSupabaseGridSync(
         }
         const remoteState = decodeState(row.payload)
         if (!remoteState) return
+        // Fresh device: in-memory state is a default project with "now" timestamps, which wrongly
+        // beats older cloud data and can even overwrite the server. Prefer cloud when nothing was saved locally.
+        if (!hasPersistedGridProjectsState()) {
+          onLoadRef.current(remoteState)
+          touchInMemoryState(remoteState)
+          return
+        }
         const rScore = getProjectsStateFreshnessScore(remoteState)
         const lScore = getProjectsStateFreshnessScore(local)
         if (rScore > lScore) {
@@ -84,6 +92,12 @@ export function useSupabaseGridSync(
           touchInMemoryState(remoteState)
         } else if (lScore > rScore) {
           await upsertRemote(uid, local)
+        } else {
+          // Same freshness: if payloads differ, push local so edits are not stuck only in the browser.
+          const localEncoded = encodeState(local)
+          if (localEncoded !== row.payload) {
+            await upsertRemote(uid, local)
+          }
         }
       } catch {
         mergedSessionRef.current = undefined
@@ -103,15 +117,32 @@ export function useSupabaseGridSync(
       void upsertRemote(uid, state)
         .then(() => setStatus('saved'))
         .catch(() => setStatus('error'))
-    }, 3200)
+    }, 1400)
     return () => window.clearTimeout(t)
   }, [state, session?.user?.id, autoSync])
 
-  const saveNow = useCallback(async () => {
+  useEffect(() => {
+    if (!isSupabaseAuthEnabled() || !session?.user?.id || !autoSync) return
+    const uid = session.user.id
+    const flush = () => {
+      void upsertRemote(uid, stateRef.current).catch(() => {})
+    }
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [session?.user?.id, autoSync])
+
+  const saveNow = useCallback(async (overrideState?: GridProjectsState) => {
     if (!isSupabaseAuthEnabled() || !session?.user?.id) return true
     setStatus('saving')
     try {
-      await upsertRemote(session.user.id, stateRef.current)
+      await upsertRemote(session.user.id, overrideState ?? stateRef.current)
       setStatus('saved')
       return true
     } catch {

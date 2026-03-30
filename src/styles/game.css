@@ -1293,6 +1293,8 @@
   will-change: transform;
   backface-visibility: hidden;
   transform-origin: center bottom;
+  /* Promotes tilted grid to its own composited layer (pairs with perspective on shell). */
+  transform: translateZ(0);
   border-radius: 22px;
   border: 0;
   background: transparent;
@@ -1335,7 +1337,23 @@
   object-fit: fill;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.betting-grid__composite {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+  object-fit: fill;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .betting-grid__atlas-placeholder {
@@ -1372,7 +1390,25 @@
   user-select: none;
   -webkit-user-drag: none;
   backface-visibility: hidden;
-  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* iOS: avoid transition jank on layers; keep crisp raster hints for tilted / atlas paths. */
+@supports (-webkit-touch-callout: none) {
+  .betting-grid__asset-layer,
+  .betting-grid__asset,
+  .betting-grid__atlas {
+    transition: none !important;
+    will-change: auto !important;
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid__asset,
+  .betting-grid-shell[data-perspective='on'] .betting-grid__atlas {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    image-rendering: -webkit-optimize-contrast;
+  }
 }
 
 .betting-grid__zones {
@@ -1388,11 +1424,14 @@
 }
 
 .betting-grid-shell[data-perspective='off'] .betting-grid {
-  transform: rotateX(0deg) translateY(0) scale(1);
+  transform: translateZ(0) rotateX(0deg) translateY(0) scale(1);
 }
 
 .betting-grid-shell[data-perspective='on'] .betting-grid {
-  transform: rotateX(var(--grid-tilt-angle, 56deg)) translateY(0) scale(var(--grid-tilt-scale, 0.97));
+  transform: translateZ(0) rotateX(var(--grid-tilt-angle, 56deg)) translateY(0)
+    scale(var(--grid-tilt-scale, 0.97));
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .betting-grid-shell > .betting-grid {
@@ -2081,6 +2120,7 @@ button:focus-visible {
     flex: 0 0 auto;
     min-height: auto;
     height: auto;
+    transition: bottom var(--grid-transition);
   }
 
   .main-stage:has(.betting-grid-shell[data-perspective='off']) > .grid-column {
@@ -2122,7 +2162,7 @@ button:focus-visible {
   .betting-grid-shell[data-perspective='off'] .betting-grid {
     width: 100% !important;
     max-width: 100% !important;
-    transform: translateY(0) scale(1);
+    transform: translateZ(0) translateY(0) scale(1);
     transform-origin: center bottom;
   }
 
@@ -2227,6 +2267,7 @@ button:focus-visible {
   flex: 0 0 auto;
   min-height: auto;
   height: auto;
+  transition: bottom var(--grid-transition);
 }
 
 .game-frame-shell[data-mobile-preview='on'] .main-stage:has(.betting-grid-shell[data-perspective='off']) > .grid-column {
@@ -2273,7 +2314,7 @@ button:focus-visible {
 .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='off'] .betting-grid {
   width: 100% !important;
   max-width: 100% !important;
-  transform: translateY(0) scale(1);
+  transform: translateZ(0) translateY(0) scale(1);
   transform-origin: center bottom;
 }
 
@@ -2341,21 +2382,21 @@ button:focus-visible {
   }
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
-    transform: rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
+    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
     transform-origin: center bottom;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
-    transform: rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
+    transform: translateZ(0) rotateX(var(--grid-tilt-angle, 48deg)) translateY(0) scale(1) !important;
     transform-origin: center bottom;
   }
 
   .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {
-    bottom: 32px;
+    bottom: 20px;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {
-    bottom: 32px;
+    bottom: 20px;
   }
 
   .bottom-bar {
@@ -2685,30 +2726,6 @@ button:focus-visible {
   color: #ff7d7d;
   border-color: rgba(255, 125, 125, 0.45);
   background: rgba(255, 125, 125, 0.12);
-}
-
-.grid-builder__cloud-share {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.grid-builder__cloud-room-input {
-  height: 36px;
-  width: 140px;
-  max-width: min(180px, 28vw);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: #1e232b;
-  color: var(--foreground);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 0 10px;
-}
-
-.grid-builder__cloud-room-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
 }
 
 /* ── Grid view-state toggle (Open / Closed) ─────────────────────────────── */

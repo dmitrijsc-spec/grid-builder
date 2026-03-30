@@ -13,11 +13,7 @@ import {
 } from '../components/grid/builder/storage'
 import { useSupabaseGridSync } from '../hooks/useSupabaseGridSync'
 import { isSupabaseAuthEnabled } from '../lib/supabaseClient'
-import {
-  GRID_CLOUD_ROOM_STORAGE_KEY,
-  isSupabaseGridCloudConfigured,
-  pushRuntimeSnapshotToSupabaseFromBrowser,
-} from '../services/gridCloudSupabase'
+import { pushRuntimeSnapshotToSupabaseFromBrowser } from '../services/gridCloudSupabase'
 import type { BetZoneId } from '../game/types'
 import type { GridLayer, GridPackage, GridProject, GridProjectsState, GridVisualState } from '../components/grid/builder/types'
 
@@ -579,30 +575,8 @@ export function GridCanvasBuilder() {
   const [updateRuntimeStatus, setUpdateRuntimeStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [updateRuntimeDetail, setUpdateRuntimeDetail] = useState<string | null>(null)
   const lastRuntimePublishFingerprintRef = useRef<string | null>(null)
-  const [cloudRoomInput, setCloudRoomInput] = useState(() =>
-    typeof window !== 'undefined' ? window.localStorage.getItem(GRID_CLOUD_ROOM_STORAGE_KEY) ?? '' : '',
-  )
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const id = window.setTimeout(() => {
-      window.localStorage.setItem(GRID_CLOUD_ROOM_STORAGE_KEY, cloudRoomInput.trim())
-    }, 400)
-    return () => window.clearTimeout(id)
-  }, [cloudRoomInput])
-
-  const copySharedPlayLink = useCallback(async () => {
-    const room = cloudRoomInput.trim()
-    if (!room || typeof window === 'undefined') return
-    const url = `${window.location.origin}/?room=${encodeURIComponent(room)}`
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      window.prompt('Copy play link:', url)
-    }
-  }, [cloudRoomInput])
-
-  const { status: cloudSyncStatus } = useSupabaseGridSync(
+  const { status: cloudSyncStatus, saveNow: saveProjectsToCloudNow } = useSupabaseGridSync(
     projectsState,
     (loaded) => {
       setProjectsState(loaded)
@@ -898,6 +872,7 @@ export function GridCanvasBuilder() {
       undoStackRef.current.shift()
     }
     const next: GridProjectsState = { ...projectsState, activeProjectId: projectId }
+    touchInMemoryState(next)
     setProjectsState(next)
     const targetPkg = deviceMode === 'desktop' ? target.pkg : (target.mobilePkg ?? target.pkg)
     setSelectedLayerId(targetPkg.layers[0]?.id ?? '')
@@ -911,14 +886,18 @@ export function GridCanvasBuilder() {
       const freshMobilePkg = structuredClone(activeProject.pkg)
       freshMobilePkg.meta.name = activeProject.name
       freshMobilePkg.meta.updatedAt = new Date().toISOString()
-      setProjectsState((current) => ({
-        ...current,
-        projects: current.projects.map((p) =>
-          p.id === current.activeProjectId
-            ? { ...p, updatedAt: freshMobilePkg.meta.updatedAt, mobilePkg: freshMobilePkg }
-            : p,
-        ),
-      }))
+      setProjectsState((current) => {
+        const next = {
+          ...current,
+          projects: current.projects.map((p) =>
+            p.id === current.activeProjectId
+              ? { ...p, updatedAt: freshMobilePkg.meta.updatedAt, mobilePkg: freshMobilePkg }
+              : p,
+          ),
+        }
+        touchInMemoryState(next)
+        return next
+      })
       setSelectedLayerId(freshMobilePkg.layers[0]?.id ?? '')
     } else {
       const targetPkg = mode === 'desktop' ? activeProject.pkg : (activeProject.mobilePkg ?? activeProject.pkg)
@@ -935,17 +914,25 @@ export function GridCanvasBuilder() {
       const runtimeFingerprint = getRuntimePublishFingerprint(projectsState)
       const shouldPublishToRuntime = runtimeFingerprint !== lastRuntimePublishFingerprintRef.current
       saveGridProjectsStateNow(projectsState)
+      const projectsCloudOk = await saveProjectsToCloudNow(projectsState)
+      if (!projectsCloudOk) detailParts.push('account projects: sync failed')
       if (shouldPublishToRuntime) {
         const active = projectsState.projects.find((p) => p.id === projectsState.activeProjectId)
+        const desktopBase = selectProjectPackage(active, 'desktop')
+        const mobileBase = selectProjectPackage(active, 'mobile')
+        // Mobile: keep SVG (and other vector) sources — runtime uses an `<img>` stack for sharp zoom/DPR.
+        // Atlas bake still rasterizes for optional `?mobileAtlas=1`, at 3× logical resolution.
         const { pkg: desktopPkg, error: desktopAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
-          selectProjectPackage(active, 'desktop'),
+          desktopBase,
           4,
           8192,
+          2,
         )
         const { pkg: mobilePkg, error: mobileAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
-          selectProjectPackage(active, 'mobile'),
+          mobileBase,
           5,
           8192,
+          3,
         )
         detailParts.push(
           ...(
@@ -1346,6 +1333,7 @@ export function GridCanvasBuilder() {
     if (undoStackRef.current.length > 100) {
       undoStackRef.current.shift()
     }
+    touchInMemoryState(next)
     setProjectsState(next)
     setSelectedLayerId(newProject.pkg.layers[0]?.id ?? '')
   }
@@ -1370,6 +1358,7 @@ export function GridCanvasBuilder() {
     if (undoStackRef.current.length > 100) {
       undoStackRef.current.shift()
     }
+    touchInMemoryState(next)
     setProjectsState(next)
   }
 
@@ -1389,6 +1378,7 @@ export function GridCanvasBuilder() {
     if (undoStackRef.current.length > 100) {
       undoStackRef.current.shift()
     }
+    touchInMemoryState(next)
     setProjectsState(next)
   }
 
@@ -1625,6 +1615,7 @@ export function GridCanvasBuilder() {
       flagRef: MutableRefObject<boolean>,
     ) => {
       flagRef.current = true
+      touchInMemoryState(snapshot)
       setProjectsState(snapshot)
       const active =
         snapshot.projects.find((p) => p.id === snapshot.activeProjectId) ??
@@ -2321,30 +2312,17 @@ export function GridCanvasBuilder() {
             className={`grid-builder__cloud-sync grid-builder__cloud-sync--${
               cloudSyncStatus === 'error' ? 'error' : cloudSyncStatus === 'saving' ? 'saving' : 'saved'
             }`}
+            title={
+              isSupabaseAuthEnabled()
+                ? 'Builder projects are stored per login. Other accounts see their own projects.'
+                : undefined
+            }
           >
             {cloudSyncStatus === 'saving' && (isSupabaseAuthEnabled() ? 'Account: saving…' : 'Saving…')}
             {cloudSyncStatus === 'error' && 'Account: save failed'}
             {cloudSyncStatus === 'saved' &&
               (isSupabaseAuthEnabled() ? 'Projects: Supabase' : 'Local only')}
           </div>
-          {isSupabaseGridCloudConfigured() ? (
-            <div className="grid-builder__cloud-share">
-              <label htmlFor="grid-cloud-room" className="grid-builder__visually-hidden">
-                Share room id
-              </label>
-              <input
-                id="grid-cloud-room"
-                className="grid-builder__cloud-room-input"
-                placeholder="share room"
-                value={cloudRoomInput}
-                onChange={(e) => setCloudRoomInput(e.target.value)}
-                title="Players open /?room=this value — keep it private like a password"
-              />
-              <button type="button" className="grid-builder-btn" onClick={() => { void copySharedPlayLink() }}>
-                Copy link
-              </button>
-            </div>
-          ) : null}
           <div
             className={`grid-builder__cloud-sync grid-builder__cloud-sync--${updateRuntimeStatus === 'success' ? 'saved' : updateRuntimeStatus === 'error' ? 'error' : updateRuntimeStatus}`}
             title={updateRuntimeDetail ?? undefined}

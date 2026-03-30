@@ -169,6 +169,18 @@ function readWindowNameState(): GridProjectsState | null {
   }
 }
 
+/** True if this tab/device already has builder state outside React memory (local/session/window.name). */
+export function hasPersistedGridProjectsState(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.localStorage.getItem(GRID_PROJECTS_STORAGE_KEY)?.trim()) return true
+    if (window.sessionStorage.getItem(GRID_PROJECTS_SESSION_STORAGE_KEY)?.trim()) return true
+    return readWindowNameState() !== null
+  } catch {
+    return false
+  }
+}
+
 function writeWindowNameState(state: GridProjectsState): void {
   if (typeof window === 'undefined') return
   try {
@@ -389,6 +401,8 @@ export async function buildRuntimeAtlasForPackage(
   pkg: GridPackage | null,
   qualityScale = 6,
   maxTextureWidth = 8192,
+  /** 2–3× logical size for retina / zoom; capped by `maxTextureWidth`. */
+  resolutionMultiplier = 1,
 ): Promise<GridPackage | null> {
   if (!pkg) return null
   if (typeof window === 'undefined') return pkg
@@ -400,6 +414,12 @@ export async function buildRuntimeAtlasForPackage(
   const fit = Math.min(maxTextureWidth / rawW, maxTextureWidth / rawH, 1)
   const targetWidth = Math.max(1, Math.round(rawW * fit))
   const targetHeight = Math.max(1, Math.round(rawH * fit))
+  const maxByW = maxTextureWidth / targetWidth
+  const maxByH = maxTextureWidth / targetHeight
+  let mult = Math.max(1, resolutionMultiplier)
+  mult = Math.min(mult, maxByW, maxByH)
+  if (!Number.isFinite(mult) || mult < 1) mult = 1
+
   const layers = pkg.layers.slice().sort((a, b) => a.zIndex - b.zIndex)
   const uniqueSources = Array.from(new Set(layers.map((layer) => pickLayerSourceForAtlas(pkg, layer))))
   const loadImage = (src: string) =>
@@ -414,11 +434,13 @@ export async function buildRuntimeAtlasForPackage(
   const imageMap = new Map<string, HTMLImageElement>(imageEntries)
 
   const canvas = document.createElement('canvas')
-  canvas.width = targetWidth
-  canvas.height = targetHeight
+  const physW = Math.max(1, Math.round(targetWidth * mult))
+  const physH = Math.max(1, Math.round(targetHeight * mult))
+  canvas.width = physW
+  canvas.height = physH
   const ctx = canvas.getContext('2d')
   if (!ctx) return pkg
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.setTransform(mult, 0, 0, mult, 0, 0)
   ctx.clearRect(0, 0, targetWidth, targetHeight)
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
@@ -426,6 +448,7 @@ export async function buildRuntimeAtlasForPackage(
   const scaleY = targetHeight / bounds.height
 
   const renderAtlasState = (closed: boolean): string => {
+    ctx.setTransform(mult, 0, 0, mult, 0, 0)
     ctx.clearRect(0, 0, targetWidth, targetHeight)
     for (const layer of layers) {
       const stateStyle = layer.stateStyles?.default ?? { visible: true, opacity: 1 }
@@ -482,10 +505,11 @@ export async function buildRuntimeAtlasForPackageWithFallback(
   pkg: GridPackage | null,
   qualityScale = 6,
   maxTextureWidth = 8192,
+  resolutionMultiplier = 1,
 ): Promise<BuildRuntimeAtlasWithFallbackResult> {
   if (!pkg) return { pkg: null, error: null }
   try {
-    const built = await buildRuntimeAtlasForPackage(pkg, qualityScale, maxTextureWidth)
+    const built = await buildRuntimeAtlasForPackage(pkg, qualityScale, maxTextureWidth, resolutionMultiplier)
     return { pkg: built, error: null }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -493,6 +517,101 @@ export async function buildRuntimeAtlasForPackageWithFallback(
     const fallback = structuredClone(pkg) as GridPackage
     delete fallback.global.runtimeAtlas
     return { pkg: normalizeGridPackage(fallback), error: msg }
+  }
+}
+
+export type BuildRuntimePrerenderedWithFallbackResult = {
+  pkg: GridPackage | null
+  error: string | null
+}
+
+async function rasterizeSvgLikeSource(
+  src: string,
+  targetWidth: number,
+  targetHeight: number,
+  qualityScale: number,
+  maxTextureSize: number,
+): Promise<string | null> {
+  if (typeof window === 'undefined') return null
+  if (!src) return null
+  const looksLikeSvg = src.startsWith('data:image/svg+xml') || src.startsWith('<svg') || src.includes('.svg')
+  if (!looksLikeSvg) return src
+
+  const loadImage = (value: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.decoding = 'sync'
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error(`runtime-prerender-image-load-failed:${value.slice(0, 80)}`))
+      img.src = value
+    })
+
+  const image = await loadImage(src)
+  const rawW = Math.max(1, Math.round(targetWidth * qualityScale))
+  const rawH = Math.max(1, Math.round(targetHeight * qualityScale))
+  const fit = Math.min(maxTextureSize / rawW, maxTextureSize / rawH, 1)
+  const outW = Math.max(1, Math.round(rawW * fit))
+  const outH = Math.max(1, Math.round(rawH * fit))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = outW
+  canvas.height = outH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return src
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, outW, outH)
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(image, 0, 0, outW, outH)
+  return canvas.toDataURL('image/png')
+}
+
+/**
+ * Build high-res pre-rendered layer images (PNG) from SVG sources.
+ * This keeps runtime visual quality stable on mobile WebView/GPU paths where SVG can blur.
+ */
+export async function buildRuntimePrerenderedPackageWithFallback(
+  pkg: GridPackage | null,
+  qualityScale = 3,
+  maxTextureSize = 4096,
+): Promise<BuildRuntimePrerenderedWithFallbackResult> {
+  if (!pkg) return { pkg: null, error: null }
+  try {
+    const next = structuredClone(pkg)
+    const cache = new Map<string, string>()
+
+    const convert = async (src: string, width: number, height: number): Promise<string> => {
+      const key = `${src}::${Math.max(1, Math.round(width))}x${Math.max(1, Math.round(height))}`
+      const cached = cache.get(key)
+      if (cached) return cached
+      const out = await rasterizeSvgLikeSource(src, width, height, qualityScale, maxTextureSize)
+      const finalSrc = out ?? src
+      cache.set(key, finalSrc)
+      return finalSrc
+    }
+
+    for (const layer of next.layers) {
+      const baseW = layer.width > 0 ? layer.width : 1
+      const baseH = layer.height > 0 ? layer.height : 1
+      layer.src = await convert(layer.src, baseW, baseH)
+
+      if (layer.stateSvgs) {
+        const entries = Object.entries(layer.stateSvgs) as [GridVisualState, string][]
+        for (const [state, source] of entries) {
+          if (!source) continue
+          const rect = layer.stateRects?.[state]
+          const w = rect?.width && rect.width > 0 ? rect.width : baseW
+          const h = rect?.height && rect.height > 0 ? rect.height : baseH
+          layer.stateSvgs[state] = await convert(source, w, h)
+        }
+      }
+    }
+
+    return { pkg: next, error: null }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[SciBo] buildRuntimePrerenderedPackageWithFallback failed:', e)
+    return { pkg: normalizeGridPackage(structuredClone(pkg)), error: msg }
   }
 }
 
