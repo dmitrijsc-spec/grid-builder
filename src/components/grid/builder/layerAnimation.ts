@@ -141,12 +141,14 @@ export function builderPreviewFrameStyle(
   elementState: GridVisualState,
   gridState: GridGameViewState,
   snap: boolean,
+  options?: { mobileStrip?: boolean },
 ): CSSProperties {
   if (anim.preset === 'none') return {}
+  const presetOpts = { withTransition: !snap, mobileStrip: options?.mobileStrip }
   if (scope === 'grid-state') {
     const factor = gridScopeActiveFactor(gridState, anim.toGridState)
-    return animationStyleFromPreset(anim, factor, { withTransition: !snap })
+    return animationStyleFromPreset(anim, factor, presetOpts)
   }
   const factor = elementState === 'default' ? 0 : 1
-  return animationStyleFromPreset(anim, factor, { withTransition: !snap })
+  return animationStyleFromPreset(anim, factor, presetOpts)
 }

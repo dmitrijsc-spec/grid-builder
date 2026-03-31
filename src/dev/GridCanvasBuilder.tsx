@@ -50,6 +50,15 @@ function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Snap CSS lengths to the device pixel grid (critical for sharp IMG/SVG on iOS WebKit). */
+function snapCssPx(cssPx: number): number {
+  const dpr = typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1
+  return Math.round(cssPx * dpr) / dpr
+}
+
+/** Below this inner width, builder auto-opens the mobile grid package (matches common “phone width” band). */
+const BUILDER_AUTO_DEVICE_MAX_WIDTH_PX = 960
+
 function fallbackZoneId(layerId: string): BetZoneId {
   return (`zone_${layerId.replace(/[^a-zA-Z0-9_]/g, '_')}`) as BetZoneId
 }
@@ -676,8 +685,12 @@ export function GridCanvasBuilder() {
       ) ?? projectsState.projects[0],
     [projectsState],
   )
-  const [deviceMode, setDeviceMode] = useState<'desktop' | 'mobile'>('desktop')
+  const [deviceMode, setDeviceMode] = useState<'desktop' | 'mobile'>(() => {
+    if (typeof window === 'undefined') return 'desktop'
+    return window.innerWidth <= BUILDER_AUTO_DEVICE_MAX_WIDTH_PX ? 'mobile' : 'desktop'
+  })
   const deviceModeRef = useRef<'desktop' | 'mobile'>('desktop')
+  const switchDeviceModeRef = useRef<(mode: 'desktop' | 'mobile') => void>(() => {})
   const pkg = deviceMode === 'desktop'
     ? activeProject.pkg
     : (activeProject.mobilePkg ?? activeProject.pkg)
@@ -929,7 +942,21 @@ export function GridCanvasBuilder() {
   // Use stable constant when no layer selected — prevents useEffect from re-running every render
   const enabledStateKeys = selectedLayer?.enabledStates ?? DEFAULT_ENABLED_STATES
   const availableToCreateStates = STATES.filter((state) => !enabledStateKeys.includes(state))
-  const previewScale = pkg.frame.scale * previewZoom
+  const isIOSWebKitBuilder =
+    typeof navigator !== 'undefined' &&
+    (/iP(hone|ad|od)/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1))
+  const rawPreviewScale = pkg.frame.scale * previewZoom
+  const previewScale = useMemo(() => {
+    if (!isIOSWebKitBuilder) return rawPreviewScale
+    const fw = pkg.frame.width
+    const snappedW = Math.max(1, snapCssPx(fw * rawPreviewScale))
+    return snappedW / fw
+  }, [isIOSWebKitBuilder, rawPreviewScale, pkg.frame.width])
+  const snapPreviewLen = useCallback(
+    (n: number) => (isIOSWebKitBuilder ? snapCssPx(n) : n),
+    [isIOSWebKitBuilder],
+  )
 
   // Keep hot-path refs in sync on every render (no useEffect overhead)
   projectsStateRef.current = projectsState
@@ -1101,6 +1128,13 @@ export function GridCanvasBuilder() {
     }
     setDeviceMode(mode)
   }
+
+  switchDeviceModeRef.current = switchDeviceMode
+
+  useEffect(() => {
+    const narrow = viewportWidth <= BUILDER_AUTO_DEVICE_MAX_WIDTH_PX
+    switchDeviceModeRef.current(narrow ? 'mobile' : 'desktop')
+  }, [viewportWidth])
 
   const pushActiveGridToRuntime = async () => {
     setUpdateRuntimeStatus('saving')
@@ -3021,7 +3055,7 @@ export function GridCanvasBuilder() {
             style={
               {
                 '--builder-tilt-angle': `${pkg.global?.tiltAngleDeg ?? 56}deg`,
-                transform: `translate(${previewPan.x}px, ${previewPan.y}px)`,
+                transform: `translate(${snapPreviewLen(previewPan.x)}px, ${snapPreviewLen(previewPan.y)}px)`,
               } as CSSProperties
             }
           >
@@ -3029,17 +3063,17 @@ export function GridCanvasBuilder() {
               ref={canvasAreaRef}
               className="grid-builder__canvas"
               style={{
-                width: pkg.frame.width * previewScale,
-                height: pkg.frame.height * previewScale,
+                width: snapPreviewLen(pkg.frame.width * previewScale),
+                height: snapPreviewLen(pkg.frame.height * previewScale),
               }}
             >
               <div
                 className="grid-builder__clip-rect"
                 style={{
-                  left: clipRect.x * previewScale,
-                  top: clipRect.y * previewScale,
-                  width: clipRect.width * previewScale,
-                  height: clipRect.height * previewScale,
+                  left: snapPreviewLen(clipRect.x * previewScale),
+                  top: snapPreviewLen(clipRect.y * previewScale),
+                  width: snapPreviewLen(clipRect.width * previewScale),
+                  height: snapPreviewLen(clipRect.height * previewScale),
                 }}
               >
                 <span className="grid-builder__clip-rect-label">Clip zone</span>
@@ -3055,6 +3089,7 @@ export function GridCanvasBuilder() {
                 const isolateDim =
                   animationPreview && !previewTarget ? 0.12 : 1
                 let transitAnim: CSSProperties
+                const iosAnimOpts = isIOSWebKitBuilder ? { mobileStrip: true as const } : undefined
                 if (!animationPreview) {
                   transitAnim = layerAnimationStyle(
                     layer,
@@ -3062,6 +3097,7 @@ export function GridCanvasBuilder() {
                     stateKey,
                     previousBuilderGridRef.current,
                     gridVis,
+                    iosAnimOpts,
                   )
                 } else if (!previewTarget) {
                   transitAnim = layerAnimationStyle(
@@ -3070,6 +3106,7 @@ export function GridCanvasBuilder() {
                     stateKey,
                     gridViewState,
                     gridViewState,
+                    iosAnimOpts,
                   )
                 } else {
                   transitAnim = {}
@@ -3094,6 +3131,7 @@ export function GridCanvasBuilder() {
                       el,
                       gridCtx,
                       ap.phase === 0,
+                      isIOSWebKitBuilder ? { mobileStrip: true } : undefined,
                     )
                   }
                 }
@@ -3110,10 +3148,10 @@ export function GridCanvasBuilder() {
                     layerId={layer.id}
                     src={src}
                     alt={layer.name}
-                    left={rect.x * previewScale}
-                    top={rect.y * previewScale}
-                    width={rect.width * previewScale}
-                    height={rect.height * previewScale}
+                    left={snapPreviewLen(rect.x * previewScale)}
+                    top={snapPreviewLen(rect.y * previewScale)}
+                    width={snapPreviewLen(rect.width * previewScale)}
+                    height={snapPreviewLen(rect.height * previewScale)}
                     opacity={styleByState.opacity * isolateDim}
                     zIndex={previewTarget ? layer.zIndex + 1000 : layer.zIndex}
                     animationStyle={Object.keys(mergedAnim).length > 0 ? mergedAnim : undefined}
@@ -3125,10 +3163,10 @@ export function GridCanvasBuilder() {
                   ref={selectionBoxRef}
                   className="grid-builder__selection"
                   style={{
-                    left: selectedRect.x * previewScale,
-                    top: selectedRect.y * previewScale,
-                    width: selectedRect.width * previewScale,
-                    height: selectedRect.height * previewScale,
+                    left: snapPreviewLen(selectedRect.x * previewScale),
+                    top: snapPreviewLen(selectedRect.y * previewScale),
+                    width: snapPreviewLen(selectedRect.width * previewScale),
+                    height: snapPreviewLen(selectedRect.height * previewScale),
                   }}
                   onPointerDown={(event) => {
                     if (selectedLayer.locked) return
