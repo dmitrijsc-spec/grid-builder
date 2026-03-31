@@ -693,19 +693,11 @@ export function selectProjectPackage(project: GridProject | undefined, mode: Run
   }
   const desktop = project.pkg
   const mobile = project.mobilePkg
-  if (!mobile) {
-    if (!desktop) return null
-    return normalizeGridPackage(desktop)
-  }
-  if (!desktop) return normalizeGridPackage(mobile)
-  const deskTs = Date.parse(desktop.meta?.updatedAt ?? '')
-  const mobTs = Date.parse(mobile.meta?.updatedAt ?? '')
-  // After "Mobile" was opened once, `mobilePkg` is a fork. Desktop-only edits update `pkg` but not
-  // `mobilePkg`, so phones would keep stale layers until re-publish. Prefer desktop when it is newer.
-  if (Number.isFinite(deskTs) && (!Number.isFinite(mobTs) || deskTs > mobTs)) {
-    return normalizeGridPackage(desktop)
-  }
-  return normalizeGridPackage(mobile)
+  // If a mobile fork exists, always use it — it was intentionally designed for phones.
+  // Fall back to desktop only when there is no mobile package at all.
+  if (mobile) return normalizeGridPackage(mobile)
+  if (!desktop) return null
+  return normalizeGridPackage(desktop)
 }
 
 function saveRuntimePackagesSnapshot(

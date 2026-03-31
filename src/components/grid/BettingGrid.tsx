@@ -468,7 +468,7 @@ export function BettingGrid() {
             activeState,
             prevGrid,
             globalGridState,
-            isMobileRuntime ? { omitWillChange: true } : undefined,
+            isMobileRuntime ? { mobileStrip: true } : undefined,
           )
           const animationOpacity = animationStyle.opacity as number | undefined
           if (!visual.visible) return null

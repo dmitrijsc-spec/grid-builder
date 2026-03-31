@@ -3,9 +3,16 @@ import type { GridGameViewState, GridLayerAnimation, GridPackage, GridVisualStat
 export function animationStyleFromPreset(
   animation: GridLayerAnimation,
   activeFactor: number,
-  options?: { withTransition?: boolean; omitWillChange?: boolean },
+  options?: { withTransition?: boolean; omitWillChange?: boolean; mobileStrip?: boolean },
 ): CSSProperties {
   if (animation.preset === 'none') return {}
+
+  // On mobile WebKit, any inline `transform` (even identity like scale(1))
+  // promotes the element to a GPU compositing layer and rasterises the SVG as
+  // a low-res bitmap.  When the animation is at rest (activeFactor === 0) every
+  // preset produces an identity transform, so we return {} to keep vector rendering.
+  if (options?.mobileStrip && activeFactor === 0) return {}
+
   const intensity = Math.max(0, Math.min(3, animation.intensity ?? 1))
   let transform = ''
   let extraOpacity: number | undefined
@@ -22,7 +29,10 @@ export function animationStyleFromPreset(
     transform = `translateY(${-8 * intensity * activeFactor}px)`
   }
 
-  const useTransition = options?.withTransition !== false
+  // On mobile: apply the effect instantly (no transition) so the GPU layer
+  // exists only for the single frame, then disappears when factor returns to 0.
+  const skipTransition = options?.mobileStrip
+  const useTransition = !skipTransition && options?.withTransition !== false
   return {
     transform,
     ...(useTransition
@@ -32,8 +42,7 @@ export function animationStyleFromPreset(
       : { transition: 'none' }),
     opacity: extraOpacity,
     transformOrigin: 'center center',
-    // `will-change` promotes the element to a GPU layer — on mobile WebKit this freezes SVG raster at current size.
-    ...(options?.omitWillChange ? {} : { willChange: 'transform, opacity' }),
+    ...(options?.omitWillChange || options?.mobileStrip ? {} : { willChange: 'transform, opacity' }),
   }
 }
 
@@ -54,7 +63,7 @@ export function layerAnimationStyle(
   elementState: GridVisualState,
   prevGridState: GridGameViewState,
   gridState: GridGameViewState,
-  options?: { omitWillChange?: boolean },
+  options?: { omitWillChange?: boolean; mobileStrip?: boolean },
 ): CSSProperties {
   const animation = layer.animation ?? {
     scope: 'element-state',
@@ -72,6 +81,7 @@ export function layerAnimationStyle(
   if (animation.preset === 'none') return {}
 
   const scope = animation.scope === 'grid-state' ? 'grid-state' : 'element-state'
+  const presetOpts = { omitWillChange: options?.omitWillChange, mobileStrip: options?.mobileStrip }
 
   if (scope === 'grid-state') {
     const fromG = animation.fromGridState ?? 'any'
@@ -83,7 +93,7 @@ export function layerAnimationStyle(
     if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
 
     const activeFactor = gridScopeActiveFactor(gridState, toG)
-    return animationStyleFromPreset(animation, activeFactor, { omitWillChange: options?.omitWillChange })
+    return animationStyleFromPreset(animation, activeFactor, presetOpts)
   }
 
   const fromMatches = animation.fromState === 'any' || animation.fromState === prevElementState
@@ -94,7 +104,7 @@ export function layerAnimationStyle(
   if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
 
   const activeFactor = elementState === 'default' ? 0 : 1
-  return animationStyleFromPreset(animation, activeFactor, { omitWillChange: options?.omitWillChange })
+  return animationStyleFromPreset(animation, activeFactor, presetOpts)
 }
 
 /** Builder preview: concrete endpoints when From/To are "any". */
