@@ -462,6 +462,19 @@ export function resolveRuntimeAtlasResolutionMultiplier(
   return Math.max(floor, device)
 }
 
+/** SVG→PNG bake scale for mobile builder: preview uses frame.scale × zoom (up to ~3×), so bitmap must exceed CSS×DPR. */
+const MOBILE_BUILDER_RASTER_QUALITY_CAP = 12
+/** Upper bound of (frame.scale × previewZoom) in builder — keep in sync with clampPreviewZoom × GRID_SKIN.scale. */
+const MOBILE_BUILDER_PREVIEW_SCALE_HINT = 4
+
+export function resolveMobileBuilderRasterQualityScale(): number {
+  if (typeof window === 'undefined') return 6
+  const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
+  const atlasFloor = resolveRuntimeAtlasResolutionMultiplier(3)
+  const needForZoom = Math.ceil(dpr * MOBILE_BUILDER_PREVIEW_SCALE_HINT)
+  return Math.min(MOBILE_BUILDER_RASTER_QUALITY_CAP, Math.max(atlasFloor, needForZoom))
+}
+
 export async function buildRuntimeAtlasForPackage(
   pkg: GridPackage | null,
   qualityScale = 6,

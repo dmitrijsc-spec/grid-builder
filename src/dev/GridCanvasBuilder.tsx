@@ -7,6 +7,7 @@ import {
   flushPendingGridProjectsPersist,
   loadGridProjectsState,
   rasterizeSvgDataUrlToPngDataUrl,
+  resolveMobileBuilderRasterQualityScale,
   resolveRuntimeAtlasResolutionMultiplier,
   mirrorExistingRuntimeSnapshotToDevServer,
   publishGridProjectsState,
@@ -1104,13 +1105,13 @@ export function GridCanvasBuilder() {
     const targets = collectMobileSvgRasterTargets(pkg.layers)
     if (targets.length === 0) return
 
-    const mult = resolveRuntimeAtlasResolutionMultiplier(3)
+    const mult = resolveMobileBuilderRasterQualityScale()
     void (async () => {
       const results: { layerId: string; state: GridVisualState | 'default'; png: string }[] = []
       for (const t of targets) {
         if (cancelled) return
         try {
-          const png = await rasterizeSvgDataUrlToPngDataUrl(t.svgUrl, t.w, t.h, mult, 4096)
+          const png = await rasterizeSvgDataUrlToPngDataUrl(t.svgUrl, t.w, t.h, mult, 8192)
           if (png) results.push({ layerId: t.layerId, state: t.state, png })
         } catch (e) {
           console.error('[SciBo] mobile grid SVG→PNG bake failed:', e)
@@ -1273,9 +1274,9 @@ export function GridCanvasBuilder() {
     async (svgText: string, cssW: number, cssH: number) => {
       const svgUrl = svgTextToDataUrl(svgText)
       if (deviceMode !== 'mobile') return svgUrl
-      const mult = resolveRuntimeAtlasResolutionMultiplier(3)
+      const mult = resolveMobileBuilderRasterQualityScale()
       try {
-        const png = await rasterizeSvgDataUrlToPngDataUrl(svgUrl, cssW, cssH, mult, 4096)
+        const png = await rasterizeSvgDataUrlToPngDataUrl(svgUrl, cssW, cssH, mult, 8192)
         return png ?? svgUrl
       } catch (e) {
         console.error('[SciBo] rasterize SVG for mobile layer failed:', e)
