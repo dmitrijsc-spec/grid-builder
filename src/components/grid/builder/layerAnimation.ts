@@ -3,7 +3,7 @@ import type { GridGameViewState, GridLayerAnimation, GridPackage, GridVisualStat
 export function animationStyleFromPreset(
   animation: GridLayerAnimation,
   activeFactor: number,
-  options?: { withTransition?: boolean },
+  options?: { withTransition?: boolean; omitWillChange?: boolean },
 ): CSSProperties {
   if (animation.preset === 'none') return {}
   const intensity = Math.max(0, Math.min(3, animation.intensity ?? 1))
@@ -32,7 +32,8 @@ export function animationStyleFromPreset(
       : { transition: 'none' }),
     opacity: extraOpacity,
     transformOrigin: 'center center',
-    willChange: 'transform, opacity',
+    // `will-change` promotes the element to a GPU layer — on mobile WebKit this freezes SVG raster at current size.
+    ...(options?.omitWillChange ? {} : { willChange: 'transform, opacity' }),
   }
 }
 
@@ -53,6 +54,7 @@ export function layerAnimationStyle(
   elementState: GridVisualState,
   prevGridState: GridGameViewState,
   gridState: GridGameViewState,
+  options?: { omitWillChange?: boolean },
 ): CSSProperties {
   const animation = layer.animation ?? {
     scope: 'element-state',
@@ -81,7 +83,7 @@ export function layerAnimationStyle(
     if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
 
     const activeFactor = gridScopeActiveFactor(gridState, toG)
-    return animationStyleFromPreset(animation, activeFactor)
+    return animationStyleFromPreset(animation, activeFactor, { omitWillChange: options?.omitWillChange })
   }
 
   const fromMatches = animation.fromState === 'any' || animation.fromState === prevElementState
@@ -92,7 +94,7 @@ export function layerAnimationStyle(
   if (animation.trigger === 'on-transition' && (!transitionChanged || !fromMatches)) return {}
 
   const activeFactor = elementState === 'default' ? 0 : 1
-  return animationStyleFromPreset(animation, activeFactor)
+  return animationStyleFromPreset(animation, activeFactor, { omitWillChange: options?.omitWillChange })
 }
 
 /** Builder preview: concrete endpoints when From/To are "any". */

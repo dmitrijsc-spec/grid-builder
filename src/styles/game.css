@@ -1398,11 +1398,15 @@
   image-rendering: auto;
 }
 
-/* iOS WebKit: keep smooth image scaling; do not force transition:none on assets — that kills builder layer presets.
-   Avoid -webkit-optimize-contrast — it makes upscaled layers look blocky. */
+/* iOS WebKit: `backface-visibility: hidden` + `will-change` force each element into its own GPU tile.
+   WebKit then rasterizes SVG <img> at whatever CSS-pixel size it first sees and caches the bitmap —
+   subsequent layout at a different size stretches stale pixels → pixelation/blurriness.
+   Removing these keeps SVG vector rasterization live at the current layout size. */
 @supports (-webkit-touch-callout: none) {
   .betting-grid__asset-layer {
     will-change: auto !important;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
   }
 
   .betting-grid__asset,
@@ -1410,8 +1414,14 @@
   .betting-grid__canvas {
     will-change: auto !important;
     image-rendering: auto !important;
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
+
+  .betting-grid-shell[data-perspective='off'] .betting-grid {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+    transition: none !important;
   }
 }
 

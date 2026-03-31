@@ -185,6 +185,7 @@ export function BettingGrid() {
     desktop: GridPackage | null
     mobile: GridPackage | null
   }>({ desktop: null, mobile: null })
+  const isMobileRuntime = runtimeDeviceMode === 'mobile'
   const [gridPackage, setGridPackage] = useState<GridPackage>(
     () => loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage(),
   )
@@ -467,6 +468,7 @@ export function BettingGrid() {
             activeState,
             prevGrid,
             globalGridState,
+            isMobileRuntime ? { omitWillChange: true } : undefined,
           )
           const animationOpacity = animationStyle.opacity as number | undefined
           if (!visual.visible) return null
@@ -483,10 +485,17 @@ export function BettingGrid() {
             src: visual.src,
             rect: shiftedRect,
             style: {
-              left: `${(shiftedRect.x / runtimeFrameWidth) * 100}%`,
-              top: `${(shiftedRect.y / runtimeFrameHeight) * 100}%`,
-              width: `${(shiftedRect.width / runtimeFrameWidth) * 100}%`,
-              height: `${(shiftedRect.height / runtimeFrameHeight) * 100}%`,
+              ...(isMobileRuntime && mobileSnapSize ? {
+                left: `${snapCssPx((shiftedRect.x / runtimeFrameWidth) * mobileSnapSize.w)}px`,
+                top: `${snapCssPx((shiftedRect.y / runtimeFrameHeight) * mobileSnapSize.h)}px`,
+                width: `${snapCssPx((shiftedRect.width / runtimeFrameWidth) * mobileSnapSize.w)}px`,
+                height: `${snapCssPx((shiftedRect.height / runtimeFrameHeight) * mobileSnapSize.h)}px`,
+              } : {
+                left: `${(shiftedRect.x / runtimeFrameWidth) * 100}%`,
+                top: `${(shiftedRect.y / runtimeFrameHeight) * 100}%`,
+                width: `${(shiftedRect.width / runtimeFrameWidth) * 100}%`,
+                height: `${(shiftedRect.height / runtimeFrameHeight) * 100}%`,
+              }),
               ...animationStyle,
               opacity:
                 animationOpacity === undefined
@@ -513,6 +522,8 @@ export function BettingGrid() {
       runtimeFrameHeight,
       runtimeOriginX,
       runtimeOriginY,
+      isMobileRuntime,
+      mobileSnapSize,
       layerAnimationLayoutFlush,
     ],
   )
@@ -537,7 +548,6 @@ export function BettingGrid() {
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
-  const isMobileRuntime = runtimeDeviceMode === 'mobile'
   const isIOSWebKit = typeof navigator !== 'undefined' && (
     /iP(hone|ad|od)/i.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1)
