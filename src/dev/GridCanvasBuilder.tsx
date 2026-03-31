@@ -111,8 +111,24 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
+function stripSvgIntrinsicSize(svgText: string): string {
+  const tagMatch = svgText.match(/<svg(\s[^>]*)?>/)
+  if (!tagMatch) return svgText
+  let attrs = tagMatch[1] ?? ''
+  const wMatch = attrs.match(/\bwidth\s*=\s*["']([^"']+)["']/)
+  const hMatch = attrs.match(/\bheight\s*=\s*["']([^"']+)["']/)
+  if (!(/\bviewBox\s*=/.test(attrs)) && wMatch && hMatch) {
+    const w = parseFloat(wMatch[1])
+    const h = parseFloat(hMatch[1])
+    if (w > 0 && h > 0) attrs += ` viewBox="0 0 ${w} ${h}"`
+  }
+  attrs = attrs.replace(/\bwidth\s*=\s*["'][^"']*["']/g, '')
+  attrs = attrs.replace(/\bheight\s*=\s*["'][^"']*["']/g, '')
+  return svgText.replace(/<svg(\s[^>]*)?>/, `<svg${attrs}>`)
+}
+
 function svgTextToDataUrl(svgText: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stripSvgIntrinsicSize(svgText))}`
 }
 
 function extractSvgText(raw: string): string | null {

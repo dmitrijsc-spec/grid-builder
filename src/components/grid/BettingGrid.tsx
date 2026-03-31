@@ -28,6 +28,58 @@ function snapCssPx(cssPx: number): number {
   return Math.round(cssPx * dpr) / dpr
 }
 
+/**
+ * iOS WebKit rasterises `<img>` SVGs at the SVG's intrinsic size (width/height attrs),
+ * NOT the CSS size of the `<img>`.  If the SVG carries `width="200" height="150"` but the
+ * element is laid out at 400×300 CSS-px on a 3× display, WebKit draws 200×150 px and stretches
+ * → severe pixelation.
+ *
+ * Fix: strip fixed width/height and ensure viewBox exists so the browser treats the SVG as
+ * fully scalable and rasterises at the actual display dimensions × devicePixelRatio.
+ */
+const _svgNormCache = new Map<string, string>()
+
+function normalizeSvgSrc(src: string): string {
+  if (!src) return src
+  const cached = _svgNormCache.get(src)
+  if (cached) return cached
+
+  let svgText: string | null = null
+  if (src.startsWith('data:image/svg+xml;charset=utf-8,')) {
+    svgText = decodeURIComponent(src.slice('data:image/svg+xml;charset=utf-8,'.length))
+  } else if (src.startsWith('data:image/svg+xml,')) {
+    svgText = decodeURIComponent(src.slice('data:image/svg+xml,'.length))
+  } else if (src.startsWith('data:image/svg+xml;base64,')) {
+    try { svgText = atob(src.slice('data:image/svg+xml;base64,'.length)) } catch { /* skip */ }
+  }
+
+  if (!svgText) { _svgNormCache.set(src, src); return src }
+
+  const tagMatch = svgText.match(/<svg(\s[^>]*)?>/)
+  if (!tagMatch) { _svgNormCache.set(src, src); return src }
+
+  let attrs = tagMatch[1] ?? ''
+  const wMatch = attrs.match(/\bwidth\s*=\s*["']([^"']+)["']/)
+  const hMatch = attrs.match(/\bheight\s*=\s*["']([^"']+)["']/)
+  const hasViewBox = /\bviewBox\s*=/.test(attrs)
+
+  if (!hasViewBox && wMatch && hMatch) {
+    const w = parseFloat(wMatch[1])
+    const h = parseFloat(hMatch[1])
+    if (w > 0 && h > 0) {
+      attrs += ` viewBox="0 0 ${w} ${h}"`
+    }
+  }
+
+  attrs = attrs.replace(/\bwidth\s*=\s*["'][^"']*["']/g, '')
+  attrs = attrs.replace(/\bheight\s*=\s*["'][^"']*["']/g, '')
+
+  const normalized = svgText.replace(/<svg(\s[^>]*)?>/, `<svg${attrs}>`)
+  const result = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalized)}`
+  _svgNormCache.set(src, result)
+  return result
+}
+
 function BetCell({
   zone,
   className = '',
@@ -482,7 +534,7 @@ export function BettingGrid() {
             id: layer.id,
             name: layer.name,
             activeState,
-            src: visual.src,
+            src: isMobileRuntime ? normalizeSvgSrc(visual.src) : visual.src,
             rect: shiftedRect,
             style: {
               ...(isMobileRuntime && mobileSnapSize ? {
