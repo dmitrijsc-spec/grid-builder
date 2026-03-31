@@ -3871,6 +3871,25 @@ button:focus-visible {
   transform-origin: center bottom;
 }
 
+/* iOS WebKit: perspective + preserve-3d + translateZ(0) force GPU compositing on all
+   descendant <img> layers, rasterising SVGs at low resolution.  When NOT tilted, flatten
+   the 3D context so SVGs stay vector-sharp at DPR. */
+@supports (-webkit-touch-callout: none) {
+  .grid-builder__canvas-stage:not(.is-tilted) {
+    perspective: none;
+  }
+  .grid-builder__canvas-stage:not(.is-tilted) .grid-builder__canvas {
+    transform-style: flat;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+  .grid-builder__layer-preview {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+  }
+}
+
 .grid-builder__ruler {
   position: absolute;
   z-index: 20;

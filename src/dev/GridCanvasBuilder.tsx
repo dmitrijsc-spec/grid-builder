@@ -131,6 +131,28 @@ function svgTextToDataUrl(svgText: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stripSvgIntrinsicSize(svgText))}`
 }
 
+const _builderSvgNormCache = new Map<string, string>()
+
+function normalizeSvgDataUrl(src: string): string {
+  if (!src) return src
+  const hit = _builderSvgNormCache.get(src)
+  if (hit) return hit
+
+  let svgText: string | null = null
+  if (src.startsWith('data:image/svg+xml;charset=utf-8,')) {
+    svgText = decodeURIComponent(src.slice('data:image/svg+xml;charset=utf-8,'.length))
+  } else if (src.startsWith('data:image/svg+xml,')) {
+    svgText = decodeURIComponent(src.slice('data:image/svg+xml,'.length))
+  } else if (src.startsWith('data:image/svg+xml;base64,')) {
+    try { svgText = atob(src.slice('data:image/svg+xml;base64,'.length)) } catch { /* skip */ }
+  }
+
+  if (!svgText) { _builderSvgNormCache.set(src, src); return src }
+  const result = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stripSvgIntrinsicSize(svgText))}`
+  _builderSvgNormCache.set(src, result)
+  return result
+}
+
 function extractSvgText(raw: string): string | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
@@ -551,7 +573,7 @@ const LayerItem = memo(function LayerItem({
       </span>
       <span className="grid-builder__layer-main">
         <span className="grid-builder__layer-thumb" aria-hidden>
-          <img className="grid-builder__layer-thumb-image" src={layer.src} alt="" />
+          <img className="grid-builder__layer-thumb-image" src={normalizeSvgDataUrl(layer.src)} alt="" />
         </span>
         <span className="grid-builder__layer-meta">
           {isRenaming ? (
@@ -786,10 +808,11 @@ export function GridCanvasBuilder() {
       } else {
         stateKey = layerEditStates[layer.id] ?? 'default'
       }
-      const src =
+      const rawSrc =
         stateKey === 'default'
           ? layer.src
           : layer.stateSvgs?.[stateKey] ?? layer.src
+      const src = normalizeSvgDataUrl(rawSrc)
       const rect =
         stateKey === 'default'
           ? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }
