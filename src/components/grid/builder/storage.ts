@@ -590,6 +590,28 @@ export type BuildRuntimePrerenderedWithFallbackResult = {
   error: string | null
 }
 
+/**
+ * Rasterise an SVG data URL to PNG (layerCss × qualityScale, capped by maxTextureSize).
+ * Used when inserting into the mobile grid package so layers are stored as bitmaps.
+ */
+export async function rasterizeSvgDataUrlToPngDataUrl(
+  svgDataUrl: string,
+  layerCssWidth: number,
+  layerCssHeight: number,
+  qualityScale = 3,
+  maxTextureSize = 4096,
+): Promise<string | null> {
+  if (typeof window === 'undefined') return null
+  if (!svgDataUrl.startsWith('data:image/svg+xml')) return null
+  return rasterizeSvgLikeSource(
+    svgDataUrl,
+    Math.max(1, layerCssWidth),
+    Math.max(1, layerCssHeight),
+    qualityScale,
+    maxTextureSize,
+  )
+}
+
 async function rasterizeSvgLikeSource(
   src: string,
   targetWidth: number,

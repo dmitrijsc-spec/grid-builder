@@ -6,6 +6,7 @@ import {
   displayGridProjectName,
   flushPendingGridProjectsPersist,
   loadGridProjectsState,
+  rasterizeSvgDataUrlToPngDataUrl,
   resolveRuntimeAtlasResolutionMultiplier,
   mirrorExistingRuntimeSnapshotToDevServer,
   publishGridProjectsState,
@@ -1157,6 +1158,23 @@ export function GridCanvasBuilder() {
   }
   pushActiveGridToRuntimeRef.current = pushActiveGridToRuntime
 
+  /** Mobile grid package: store pasted/uploaded SVG as high-res PNG (iOS-friendly). Desktop keeps SVG data URLs. */
+  const resolveLayerSrcFromSvgText = useCallback(
+    async (svgText: string, cssW: number, cssH: number) => {
+      const svgUrl = svgTextToDataUrl(svgText)
+      if (deviceMode !== 'mobile') return svgUrl
+      const mult = resolveRuntimeAtlasResolutionMultiplier(3)
+      try {
+        const png = await rasterizeSvgDataUrlToPngDataUrl(svgUrl, cssW, cssH, mult, 4096)
+        return png ?? svgUrl
+      } catch (e) {
+        console.error('[SciBo] rasterize SVG for mobile layer failed:', e)
+        return svgUrl
+      }
+    },
+    [deviceMode],
+  )
+
   const onUploadLayers = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     const startZ = pkg.layers.length + 1
@@ -1164,7 +1182,6 @@ export function GridCanvasBuilder() {
     for (let i = 0; i < files.length; i += 1) {
       const file = files[i]
       const svgText = await file.text()
-      const src = await readAsDataUrl(file)
       const natural = parseSvgNaturalSize(svgText)
       const placement = parseSvgPlacement(svgText)
       const contentBounds = parseSvgContentBounds(svgText)
@@ -1177,6 +1194,10 @@ export function GridCanvasBuilder() {
         },
         pkg.frame,
       )
+      const isSvgFile = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)
+      const src = isSvgFile
+        ? await resolveLayerSrcFromSvgText(svgText, initialRect.width, initialRect.height)
+        : await readAsDataUrl(file)
       const layer: GridLayer = {
         id: uid('layer'),
         name: file.name.replace(/\.[^.]+$/, ''),
@@ -1228,7 +1249,7 @@ export function GridCanvasBuilder() {
     setSelectedLayerId(built[0]?.id ?? selectedLayerId)
   }
 
-  const createLayerFromSvgText = (svgText: string, name = 'Pasted SVG') => {
+  const createLayerFromSvgText = async (svgText: string, name = 'Pasted SVG') => {
     const natural = parseSvgNaturalSize(svgText)
     const placement = parseSvgPlacement(svgText)
     const contentBounds = parseSvgContentBounds(svgText)
@@ -1241,12 +1262,13 @@ export function GridCanvasBuilder() {
       },
       pkg.frame,
     )
+    const src = await resolveLayerSrcFromSvgText(svgText, initialRect.width, initialRect.height)
     const layer: GridLayer = {
       id: uid('layer'),
       name,
       locked: false,
       zoneId: uid('zone') as BetZoneId,
-      src: svgTextToDataUrl(svgText),
+      src,
       originalWidth: initialRect.width,
       originalHeight: initialRect.height,
       x: initialRect.x,
@@ -1290,12 +1312,19 @@ export function GridCanvasBuilder() {
     setSelectedLayerId(layer.id)
   }
 
-  const replaceSelectedLayerFromSvgText = (svgText: string) => {
+  const replaceSelectedLayerFromSvgText = async (svgText: string) => {
     if (!selectedLayer) return
-    updateLayer(selectedLayer.id, { src: svgTextToDataUrl(svgText) })
+    const src = await resolveLayerSrcFromSvgText(svgText, selectedLayer.width, selectedLayer.height)
+    updateLayer(selectedLayer.id, { src })
   }
 
-  const setStateSvgFromText = (layerId: string, state: GridVisualState, svgText: string) => {
+  const setStateSvgFromText = async (layerId: string, state: GridVisualState, svgText: string) => {
+    const target = pkg.layers.find((l) => l.id === layerId)
+    if (!target) return
+    const rect = target.stateRects?.[state]
+    const w = rect?.width && rect.width > 0 ? rect.width : target.width
+    const h = rect?.height && rect.height > 0 ? rect.height : target.height
+    const src = await resolveLayerSrcFromSvgText(svgText, w, h)
     apply((current) => ({
       ...current,
       layers: current.layers.map((layer) =>
@@ -1305,7 +1334,7 @@ export function GridCanvasBuilder() {
               enabledStates: Array.from(new Set([...(layer.enabledStates ?? ['default']), state])),
               stateSvgs: {
                 ...layer.stateSvgs,
-                [state]: svgTextToDataUrl(svgText),
+                [state]: src,
               },
               stateRects: {
                 ...layer.stateRects,
@@ -1323,12 +1352,15 @@ export function GridCanvasBuilder() {
     }))
   }
 
-  const setLayerSourceByState = (layerId: string, state: GridVisualState, svgText: string) => {
+  const setLayerSourceByState = async (layerId: string, state: GridVisualState, svgText: string) => {
     if (state === 'default') {
-      updateLayer(layerId, { src: svgTextToDataUrl(svgText) })
+      const target = pkg.layers.find((l) => l.id === layerId)
+      if (!target) return
+      const src = await resolveLayerSrcFromSvgText(svgText, target.width, target.height)
+      updateLayer(layerId, { src })
       return
     }
-    setStateSvgFromText(layerId, state, svgText)
+    await setStateSvgFromText(layerId, state, svgText)
   }
 
   const pasteSvgFromClipboard = async (
@@ -1341,7 +1373,7 @@ export function GridCanvasBuilder() {
       return
     }
     if (mode === 'layer') {
-      createLayerFromSvgText(svg)
+      await createLayerFromSvgText(svg)
       return
     }
     if (mode === 'state' || mode === 'replace-state') {
@@ -1349,14 +1381,14 @@ export function GridCanvasBuilder() {
         window.alert('Select a layer first.')
         return
       }
-      setLayerSourceByState(selectedLayer.id, editStateKey, svg)
+      await setLayerSourceByState(selectedLayer.id, editStateKey, svg)
       return
     }
     if (!selectedLayer) {
       window.alert('Select a layer first to replace SVG.')
       return
     }
-    replaceSelectedLayerFromSvgText(svg)
+    await replaceSelectedLayerFromSvgText(svg)
   }
 
   const updateLayer = useCallback((layerId: string, patch: Partial<GridLayer>) => {
@@ -1796,11 +1828,13 @@ export function GridCanvasBuilder() {
     if (!svg) return
     event.preventDefault()
     const sl = selectedLayerRef.current
-    if (sl) {
-      setLayerSourceByState(sl.id, editStateKeyRef.current, svg)
-    } else {
-      createLayerFromSvgText(svg)
-    }
+    void (async () => {
+      if (sl) {
+        await setLayerSourceByState(sl.id, editStateKeyRef.current, svg)
+      } else {
+        await createLayerFromSvgText(svg)
+      }
+    })()
   }
   useEffect(() => {
     const handler = (e: ClipboardEvent) => onPasteHandlerRef.current(e)
