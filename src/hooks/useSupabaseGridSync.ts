@@ -96,6 +96,9 @@ export async function loadRemoteGridProjectsStateForUser(userId: string): Promis
   return bundle?.state ?? null
 }
 
+/** One in-flight cloud write per user — concurrent upserts still hit 23505 on PK under load. */
+const gridCloudSaveTailByUser = new Map<string, Promise<void>>()
+
 async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt: string } | null> {
   if (!supabase) return null
   const { data, error } = await supabase
@@ -125,7 +128,7 @@ async function fetchRemote(userId: string): Promise<{ payload: string; updatedAt
   return { payload: row.payload, updatedAt: row.updated_at }
 }
 
-async function upsertRemote(userId: string, state: GridProjectsState): Promise<void> {
+async function performUpsertRemote(userId: string, state: GridProjectsState): Promise<void> {
   if (!supabase) return
   const sb = supabase
   const encoded = encodeState(state)
@@ -151,23 +154,39 @@ async function upsertRemote(userId: string, state: GridProjectsState): Promise<v
     return
   }
 
-  const { error: delPartsErr } = await sb.from(PARTS_TABLE).delete().eq('user_id', userId)
-  if (delPartsErr) {
-    if (isMissingPartsTableError(delPartsErr)) {
+  // Chunked path: upsert each slice (one row per request — multi-megabyte batch upserts hit REST limits).
+  // Replaces delete-all + insert, which raced with concurrent saves → 23505 on pkey (user_id, part_index).
+  for (let i = 0; i < parts.length; i += 1) {
+    const { error: rowErr } = await sb.from(PARTS_TABLE).upsert(
+      {
+        user_id: userId,
+        part_index: i,
+        content: parts[i],
+      },
+      { onConflict: 'user_id,part_index' },
+    )
+    if (rowErr) {
+      if (isMissingPartsTableError(rowErr)) {
+        throw new Error(
+          `Project is too large for a single cloud row (${encoded.length} chars). ${MIGRATION_HINT}`,
+        )
+      }
+      throw rowErr
+    }
+  }
+
+  const { error: delStaleErr } = await sb
+    .from(PARTS_TABLE)
+    .delete()
+    .eq('user_id', userId)
+    .gte('part_index', parts.length)
+  if (delStaleErr) {
+    if (isMissingPartsTableError(delStaleErr)) {
       throw new Error(
         `Project is too large for a single cloud row (${encoded.length} chars). ${MIGRATION_HINT}`,
       )
     }
-    throw delPartsErr
-  }
-
-  for (let i = 0; i < parts.length; i += 1) {
-    const { error: insErr } = await sb.from(PARTS_TABLE).insert({
-      user_id: userId,
-      part_index: i,
-      content: parts[i],
-    })
-    if (insErr) throw insErr
+    throw delStaleErr
   }
 
   const tryMain = async (includePartsCount: boolean) => {
@@ -185,6 +204,20 @@ async function upsertRemote(userId: string, state: GridProjectsState): Promise<v
     )
   }
   if (main.error) throw main.error
+}
+
+async function upsertRemote(userId: string, state: GridProjectsState): Promise<void> {
+  if (!supabase) return
+  const prev = gridCloudSaveTailByUser.get(userId) ?? Promise.resolve()
+  const run = prev.catch(() => {}).then(() => performUpsertRemote(userId, state))
+  gridCloudSaveTailByUser.set(userId, run)
+  try {
+    await run
+  } finally {
+    if (gridCloudSaveTailByUser.get(userId) === run) {
+      gridCloudSaveTailByUser.delete(userId)
+    }
+  }
 }
 
 /**
