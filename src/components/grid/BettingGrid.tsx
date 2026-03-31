@@ -238,6 +238,12 @@ export function BettingGrid() {
     mobile: GridPackage | null
   }>({ desktop: null, mobile: null })
   const isMobileRuntime = runtimeDeviceMode === 'mobile'
+  const isIOSWebKit =
+    typeof navigator !== 'undefined' &&
+    (/iP(hone|ad|od)/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1))
+  /** Subpixel snap + SVG normalize + animation strip: WebKit-on-iOS only. Narrow desktop view is still "mobile" layout but Chromium renders SVG sharply with %. */
+  const iosMobileGridWorkarounds = isMobileRuntime && isIOSWebKit
   const [gridPackage, setGridPackage] = useState<GridPackage>(
     () => loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage(),
   )
@@ -520,7 +526,7 @@ export function BettingGrid() {
             activeState,
             prevGrid,
             globalGridState,
-            isMobileRuntime ? { mobileStrip: true } : undefined,
+            iosMobileGridWorkarounds ? { mobileStrip: true } : undefined,
           )
           const animationOpacity = animationStyle.opacity as number | undefined
           if (!visual.visible) return null
@@ -534,10 +540,10 @@ export function BettingGrid() {
             id: layer.id,
             name: layer.name,
             activeState,
-            src: isMobileRuntime ? normalizeSvgSrc(visual.src) : visual.src,
+            src: iosMobileGridWorkarounds ? normalizeSvgSrc(visual.src) : visual.src,
             rect: shiftedRect,
             style: {
-              ...(isMobileRuntime && mobileSnapSize ? {
+              ...(iosMobileGridWorkarounds && mobileSnapSize ? {
                 left: `${snapCssPx((shiftedRect.x / runtimeFrameWidth) * mobileSnapSize.w)}px`,
                 top: `${snapCssPx((shiftedRect.y / runtimeFrameHeight) * mobileSnapSize.h)}px`,
                 width: `${snapCssPx((shiftedRect.width / runtimeFrameWidth) * mobileSnapSize.w)}px`,
@@ -574,7 +580,7 @@ export function BettingGrid() {
       runtimeFrameHeight,
       runtimeOriginX,
       runtimeOriginY,
-      isMobileRuntime,
+      iosMobileGridWorkarounds,
       mobileSnapSize,
       layerAnimationLayoutFlush,
     ],
@@ -600,15 +606,11 @@ export function BettingGrid() {
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
-  const isIOSWebKit = typeof navigator !== 'undefined' && (
-    /iP(hone|ad|od)/i.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1)
-  )
   const closedMode = gridPackage.global?.closedMode ?? 'tilted'
   const usePerspectiveShell = closedMode === 'tilted'
   // Desktop/Android: 3D shell for smooth tilt. iPhone WebKit: skip perspective + rotateX — it rasterizes the
   // whole SVG <img> stack at low res (blurry/pixelated) even at rotateX(0deg). Flat shell keeps vectors sharp at DPR.
-  const perspective = usePerspectiveShell && !(isMobileRuntime && isIOSWebKit)
+  const perspective = usePerspectiveShell && !iosMobileGridWorkarounds
   // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
@@ -678,7 +680,7 @@ export function BettingGrid() {
     }
   }, [renderLayers, useIOSCanvasRendering])
 
-  const useMobileLayoutSnap = isMobileRuntime
+  const useMobileLayoutSnap = iosMobileGridWorkarounds
   useLayoutEffect(() => {
     if (!useMobileLayoutSnap) {
       setMobileSnapSize(null)
