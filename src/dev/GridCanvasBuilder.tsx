@@ -171,6 +171,35 @@ function extractSvgText(raw: string): string | null {
   return match ? match[0] : null
 }
 
+function isSvgDataUrl(src: string): boolean {
+  return src.startsWith('data:image/svg+xml')
+}
+
+/** Collect SVG layer sources in the mobile package so we can bake them to PNG (iOS-safe). */
+function collectMobileSvgRasterTargets(
+  layers: import('../components/grid/builder/types').GridLayer[],
+): { layerId: string; state: GridVisualState | 'default'; svgUrl: string; w: number; h: number }[] {
+  const out: { layerId: string; state: GridVisualState | 'default'; svgUrl: string; w: number; h: number }[] = []
+  for (const layer of layers) {
+    const push = (raw: string, w: number, h: number, state: GridVisualState | 'default') => {
+      const normalized = normalizeSvgDataUrl(raw)
+      if (!isSvgDataUrl(normalized)) return
+      out.push({ layerId: layer.id, state, svgUrl: normalized, w, h })
+    }
+    push(layer.src, layer.width, layer.height, 'default')
+    for (const st of STATES) {
+      if (st === 'default') continue
+      const sv = layer.stateSvgs?.[st]
+      if (!sv) continue
+      const r = layer.stateRects?.[st]
+      const w = r?.width && r.width > 0 ? r.width : layer.width
+      const h = r?.height && r.height > 0 ? r.height : layer.height
+      push(sv, w, h, st)
+    }
+  }
+  return out
+}
+
 function parseSvgNaturalSize(svgText: string): { width: number; height: number } | null {
   try {
     const parser = new DOMParser()
@@ -1066,6 +1095,53 @@ export function GridCanvasBuilder() {
       })
     })
   }, [])
+
+  // Mobile grid package: bake every SVG layer/source to PNG once (stored in mobilePkg). iOS WebKit
+  // blurs SVG-in-<img> in the builder; PNG matches insert-time behaviour and stays sharp in-game.
+  useEffect(() => {
+    if (deviceMode !== 'mobile') return
+    let cancelled = false
+    const targets = collectMobileSvgRasterTargets(pkg.layers)
+    if (targets.length === 0) return
+
+    const mult = resolveRuntimeAtlasResolutionMultiplier(3)
+    void (async () => {
+      const results: { layerId: string; state: GridVisualState | 'default'; png: string }[] = []
+      for (const t of targets) {
+        if (cancelled) return
+        try {
+          const png = await rasterizeSvgDataUrlToPngDataUrl(t.svgUrl, t.w, t.h, mult, 4096)
+          if (png) results.push({ layerId: t.layerId, state: t.state, png })
+        } catch (e) {
+          console.error('[SciBo] mobile grid SVG→PNG bake failed:', e)
+        }
+      }
+      if (cancelled || results.length === 0) return
+      apply((currentPkg) => ({
+        ...currentPkg,
+        layers: currentPkg.layers.map((l) => {
+          const forLayer = results.filter((r) => r.layerId === l.id)
+          if (forLayer.length === 0) return l
+          let next: GridLayer = { ...l }
+          for (const r of forLayer) {
+            if (r.state === 'default') {
+              next = { ...next, src: r.png }
+            } else {
+              next = {
+                ...next,
+                stateSvgs: { ...next.stateSvgs, [r.state]: r.png },
+              }
+            }
+          }
+          return next
+        }),
+      }))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [deviceMode, pkg.layers, apply])
 
   const pushUndoSnapshotNow = () => {
     if (isUndoingRef.current || isRedoingRef.current) return
