@@ -2,22 +2,19 @@ import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom'
 import { createDefaultGridPackage, createEmptyGridPackage } from '../components/grid/builder/defaultPackage'
 import {
-  buildRuntimeAtlasForPackageWithFallback,
   displayGridProjectName,
   flushPendingGridProjectsPersist,
   loadGridProjectsState,
-  resolveRuntimeAtlasResolutionMultiplier,
-  mirrorExistingRuntimeSnapshotToDevServer,
   publishGridProjectsState,
-  publishRuntimePackages,
   saveGridProjectsState,
   saveGridProjectsStateNow,
-  selectProjectPackage,
   touchInMemoryState,
 } from '../components/grid/builder/storage'
 import { useSupabaseGridSync } from '../hooks/useSupabaseGridSync'
 import { isSupabaseAuthEnabled } from '../lib/supabaseClient'
-import { pushRuntimeSnapshotToSupabaseFromBrowser } from '../services/gridCloudSupabase'
+import { BUILDER_AUTO_DEVICE_MAX_WIDTH_PX, uid } from './gridBuilder/builderConstants'
+import { PublishChannelsBar } from './gridBuilder/PublishChannelsBar'
+import { pushGridToRuntime } from './gridBuilder/pushGridToRuntime'
 import type { BetZoneId } from '../game/types'
 import {
   builderPreviewFrameStyle,
@@ -50,18 +47,11 @@ type SplitterInteraction = {
 type PanInteraction = { startClientX: number; startClientY: number; startPanX: number; startPanY: number; currentPanX?: number; currentPanY?: number }
 type NewProjectTemplate = 'empty' | 'default'
 
-function uid(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`
-}
-
 /** Snap CSS lengths to the device pixel grid (critical for sharp IMG/SVG on iOS WebKit). */
 function snapCssPx(cssPx: number): number {
   const dpr = typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1
   return Math.round(cssPx * dpr) / dpr
 }
-
-/** Below this inner width, builder auto-opens the mobile grid package (matches common “phone width” band). */
-const BUILDER_AUTO_DEVICE_MAX_WIDTH_PX = 960
 
 function fallbackZoneId(layerId: string): BetZoneId {
   return (`zone_${layerId.replace(/[^a-zA-Z0-9_]/g, '_')}`) as BetZoneId
@@ -69,17 +59,6 @@ function fallbackZoneId(layerId: string): BetZoneId {
 
 // Stable reference — prevents useEffect re-run every render when no layer is selected
 const DEFAULT_ENABLED_STATES: GridVisualState[] = ['default']
-
-/** Both desktop + mobile packages — otherwise edits in the “other” builder mode never publish or hit the LAN relay. */
-function getRuntimePublishFingerprint(state: GridProjectsState): string {
-  const active =
-    state.projects.find((project) => project.id === state.activeProjectId) ??
-    state.projects[0]
-  if (!active) return 'none'
-  const desktop = active.pkg
-  const mobile = active.mobilePkg ?? active.pkg
-  return `${active.id}:${JSON.stringify({ desktop, mobile })}`
-}
 
 function fitRectIntoFrame(
   rect: { x: number; y: number; width: number; height: number },
@@ -743,6 +722,8 @@ export function GridCanvasBuilder() {
   const stateCreateMenuRef = useRef<HTMLDivElement | null>(null)
   const layerImportFileInputRef = useRef<HTMLInputElement | null>(null)
   const interactionRef = useRef<CanvasInteraction | null>(null)
+  /** Active `pointerup` listener for canvas drag — cleared when drag ends or on unmount. */
+  const endCanvasDragRef = useRef<(() => void) | null>(null)
   const splitterRef = useRef<SplitterInteraction | null>(null)
   const panRef = useRef<PanInteraction | null>(null)
   const undoStackRef = useRef<GridProjectsState[]>([])
@@ -962,8 +943,15 @@ export function GridCanvasBuilder() {
       ? { gridTemplateColumns: '1fr' }
       : { gridTemplateColumns: `${cViewerW}px ${splitterWidth}px minmax(${minEditorPanelWidth}px, 1fr) ${splitterWidth}px ${cSidebarW}px` }
     return { availableBuilderWidth: avail, isCompactBuilderLayout: compact, clampedViewerWidth: cViewerW, clampedSidebarWidth: cSidebarW, builderLayoutStyle: layoutStyle }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportWidth, viewerWidth, sidebarWidth])
+  }, [
+    viewportWidth,
+    viewerWidth,
+    sidebarWidth,
+    minViewerPanelWidth,
+    minEditorPanelWidth,
+    minSidebarPanelWidth,
+    splitterWidth,
+  ])
   const rulerStepPx = 50
   const horizontalRulerMarks = useMemo(
     () =>
@@ -1118,54 +1106,21 @@ export function GridCanvasBuilder() {
   const pushActiveGridToRuntime = async () => {
     setUpdateRuntimeStatus('saving')
     setUpdateRuntimeDetail(null)
-    const detailParts: string[] = []
-    try {
-      const runtimeFingerprint = getRuntimePublishFingerprint(projectsState)
-      const shouldPublishToRuntime = runtimeFingerprint !== lastRuntimePublishFingerprintRef.current
-      saveGridProjectsStateNow(projectsState)
-      const projectsCloudOk = await saveProjectsToCloudNow(projectsState)
-      if (!projectsCloudOk) detailParts.push('account projects: sync failed')
-      if (shouldPublishToRuntime) {
-        const active = projectsState.projects.find((p) => p.id === projectsState.activeProjectId)
-        const desktopBase = selectProjectPackage(active, 'desktop')
-        const mobileBase = selectProjectPackage(active, 'mobile')
-        // Mobile: SVG stack is default; atlas for `?mobileAtlas=1` uses max(2|3×, DPR) bake scale.
-        const desktopAtlasMult = resolveRuntimeAtlasResolutionMultiplier(2)
-        const mobileAtlasMult = resolveRuntimeAtlasResolutionMultiplier(3)
-        const { pkg: desktopPkg, error: desktopAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
-          desktopBase,
-          4,
-          8192,
-          desktopAtlasMult,
-        )
-        const { pkg: mobilePkg, error: mobileAtlasErr } = await buildRuntimeAtlasForPackageWithFallback(
-          mobileBase,
-          5,
-          8192,
-          mobileAtlasMult,
-        )
-        detailParts.push(
-          ...(
-            [
-              desktopAtlasErr && `desktop atlas: ${desktopAtlasErr}`,
-              mobileAtlasErr && `mobile atlas: ${mobileAtlasErr}`,
-            ].filter(Boolean) as string[]
-          ),
-        )
-        publishRuntimePackages(desktopPkg, mobilePkg, deviceModeRef.current)
-        lastRuntimePublishFingerprintRef.current = runtimeFingerprint
-      } else {
-        // Re-push last snapshot to the dev relay so phones can catch up (relay reset, new tab, etc.)
-        mirrorExistingRuntimeSnapshotToDevServer()
-      }
-      const cloudResult = await pushRuntimeSnapshotToSupabaseFromBrowser()
-      if (!cloudResult.ok) detailParts.push(`cloud: ${cloudResult.error}`)
-      if (detailParts.length > 0) setUpdateRuntimeDetail(detailParts.join(' · '))
+    const result = await pushGridToRuntime({
+      projectsState,
+      lastFingerprint: lastRuntimePublishFingerprintRef.current,
+      deviceMode: deviceModeRef.current,
+      saveGridProjectsStateNow,
+      saveProjectsToCloudNow,
+    })
+    if (result.ok) {
+      lastRuntimePublishFingerprintRef.current = result.nextFingerprint
+      if (result.detailParts.length > 0) setUpdateRuntimeDetail(result.detailParts.join(' · '))
+      else setUpdateRuntimeDetail(null)
       setUpdateRuntimeStatus('success')
-    } catch (e) {
-      console.error('[SciBo] pushActiveGridToRuntime failed:', e)
-      const msg = e instanceof Error ? e.message : String(e)
-      setUpdateRuntimeDetail(msg)
+    } else {
+      console.error('[SciBo] pushActiveGridToRuntime failed:', result.error)
+      setUpdateRuntimeDetail(result.error)
       setUpdateRuntimeStatus('error')
     }
   }
@@ -2121,21 +2076,18 @@ export function GridCanvasBuilder() {
     }
   }, [])
 
-  const stopCanvasInteraction = useCallback(() => {
+  const finalizeCanvasInteractionCommit = useCallback(() => {
     const ia = interactionRef.current
     if (ia) {
       const moved = ia.liveX !== ia.startX || ia.liveY !== ia.startY || ia.liveW !== ia.startW || ia.liveH !== ia.startH
       if (moved) {
-        // Commit final drag position to React state — single update for entire drag
         applyLayerRectCallbackRef.current(ia.layerId, ia.stateKey, {
           x: ia.liveX, y: ia.liveY, width: ia.liveW, height: ia.liveH,
         })
       }
     }
     interactionRef.current = null
-    window.removeEventListener('pointermove', onWindowPointerMove)
-    window.removeEventListener('pointerup', stopCanvasInteraction)
-  }, [onWindowPointerMove])
+  }, [])
 
   const clampViewerWidth = (value: number) => {
     const maxWidth =
@@ -2149,11 +2101,12 @@ export function GridCanvasBuilder() {
     return Math.max(minSidebarPanelWidth, Math.min(maxWidth, value))
   }
 
-  const clampPreviewZoom = (value: number) => Math.max(0.4, Math.min(3, value))
-
-  const stepPreviewZoom = (delta: number) => {
-    setPreviewZoom((current) => Math.round(clampPreviewZoom(current + delta) * 100) / 100)
-  }
+  const stepPreviewZoom = useCallback((delta: number) => {
+    setPreviewZoom((current) => {
+      const clamped = Math.max(0.4, Math.min(3, current + delta))
+      return Math.round(clamped * 100) / 100
+    })
+  }, [])
 
   // Native wheel listener with passive:false is required for ctrl/cmd zoom.
   // React's delegated wheel listener may be passive in modern runtimes.
@@ -2258,12 +2211,17 @@ export function GridCanvasBuilder() {
     event.preventDefault()
     event.stopPropagation()
     pushUndoSnapshotNow()
-    // Capture stateKey at drag start — used by stopCanvasInteraction to commit
     const stateKey = editStateKeyRef.current
     const startX = stateKey !== 'default' ? (layer.stateRects?.[stateKey]?.x ?? layer.x) : layer.x
     const startY = stateKey !== 'default' ? (layer.stateRects?.[stateKey]?.y ?? layer.y) : layer.y
     const startW = stateKey !== 'default' ? (layer.stateRects?.[stateKey]?.width ?? layer.width) : layer.width
     const startH = stateKey !== 'default' ? (layer.stateRects?.[stateKey]?.height ?? layer.height) : layer.height
+    const prevEnd = endCanvasDragRef.current
+    if (prevEnd) {
+      window.removeEventListener('pointermove', onWindowPointerMove)
+      window.removeEventListener('pointerup', prevEnd)
+      endCanvasDragRef.current = null
+    }
     interactionRef.current = {
       layerId: layer.id,
       mode,
@@ -2273,17 +2231,28 @@ export function GridCanvasBuilder() {
       stateKey,
       liveX: startX, liveY: startY, liveW: startW, liveH: startH,
     }
+    const endCanvasDrag = () => {
+      finalizeCanvasInteractionCommit()
+      window.removeEventListener('pointermove', onWindowPointerMove)
+      window.removeEventListener('pointerup', endCanvasDrag)
+      endCanvasDragRef.current = null
+    }
+    endCanvasDragRef.current = endCanvasDrag
     window.addEventListener('pointermove', onWindowPointerMove)
-    window.addEventListener('pointerup', stopCanvasInteraction)
+    window.addEventListener('pointerup', endCanvasDrag)
   }
 
   useEffect(() => {
     return () => {
-      stopCanvasInteraction()
+      finalizeCanvasInteractionCommit()
+      window.removeEventListener('pointermove', onWindowPointerMove)
+      const end = endCanvasDragRef.current
+      if (end) window.removeEventListener('pointerup', end)
+      endCanvasDragRef.current = null
       stopSplitterInteractionRef.current()
       stopPanInteractionRef.current()
     }
-  }, [stopCanvasInteraction])
+  }, [finalizeCanvasInteractionCommit, onWindowPointerMove])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2344,7 +2313,7 @@ export function GridCanvasBuilder() {
     const ratio = selectedRect.width / selectedLayer.originalWidth
     if (!Number.isFinite(ratio) || ratio <= 0) return 1
     return Math.round(ratio * 1000) / 1000
-  }, [selectedLayer?.id, selectedRect?.width, selectedLayer?.originalWidth])
+  }, [selectedLayer, selectedRect])
   const layerScaleValue = Number.isFinite(layerScaleDerived) && layerScaleDerived > 0
     ? layerScaleDerived
     : 1
@@ -2485,6 +2454,7 @@ export function GridCanvasBuilder() {
 
   return (
     <div className="grid-builder-page" ref={rootRef}>
+      <PublishChannelsBar />
       <header className="grid-builder__header">
         <div className="grid-builder__header-group">
           <div className="grid-builder__project-picker">

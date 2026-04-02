@@ -13,6 +13,8 @@ npm run dev
 
 Open **http://localhost:5173** (game), **http://localhost:5173/dev/grid-builder** (builder). On LAN testing, use your machine IP and port shown in the terminal.
 
+Designer workflow (builder, **Update Game**, LAN vs `?room=`): **`docs/GRID_DESIGNER_WORKFLOW.md`**. Manual QA checklist: **`docs/GRID_QA_CHECKLIST.md`**.
+
 ## Security
 
 If **secret** API keys were ever pasted into chat or committed, **rotate** them in Supabase (Project Settings → API) and never put `sb_secret_*` in Vite — only publishable/anon in `VITE_*` variables.

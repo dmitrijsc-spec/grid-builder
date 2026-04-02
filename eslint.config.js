@@ -20,4 +20,11 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/dev/GridCanvasBuilder.tsx', 'src/components/grid/BettingGrid.tsx'],
+    rules: {
+      // Intentional: builder syncs refs during render; grid reads animation baseline refs inside useMemo.
+      'react-hooks/refs': 'off',
+    },
+  },
 ])

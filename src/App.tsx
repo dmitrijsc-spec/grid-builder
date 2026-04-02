@@ -6,7 +6,7 @@ import { GameFrame } from './components/game/GameFrame'
 import { GameShell } from './components/layout/GameShell'
 import { TopBar } from './components/top/TopBar'
 import { GridCanvasBuilder } from './dev/GridCanvasBuilder'
-import { GridZoneEditor } from './dev/GridZoneEditor'
+import { LegacyGridZoneEditorNotice } from './dev/LegacyGridZoneEditorNotice'
 import { GridRuntimeComparePage } from './dev/GridRuntimeComparePage'
 import { isSupabaseAuthEnabled } from './lib/supabaseClient'
 
@@ -45,7 +45,7 @@ function App() {
   }
 
   if (typeof window !== 'undefined' && window.location.pathname === '/dev/grid-editor') {
-    return <GridZoneEditor />
+    return <LegacyGridZoneEditorNotice />
   }
   if (typeof window !== 'undefined' && window.location.pathname === '/dev/grid-builder') {
     return <GridCanvasBuilder />

@@ -483,10 +483,11 @@ export function BettingGrid() {
   /** Inline SVG for all viewports when we render the stacked layer list (not atlas/canvas). */
   const useInlineSvgLayers = !useMobileAtlasRendering && !useIOSCanvasRendering
 
-  /* eslint-disable react-hooks/refs -- previousLayerStateRef read for hover transition baseline */
   const renderLayers = useMemo(
-    () =>
-      gridPackage.layers
+    () => {
+      // Bumps when grid/hover changes so this memo re-runs after layout (animation transition frame).
+      void layerAnimationLayoutFlush
+      return gridPackage.layers
         .slice()
         .sort((a, b) => a.zIndex - b.zIndex)
         .map((layer) => {
@@ -563,11 +564,11 @@ export function BettingGrid() {
           inlineSvgMarkup: string | null
           rect: { x: number; y: number; width: number; height: number }
           style: CSSProperties
-        } => item !== null),
+        } => item !== null)
+    },
     [
       gridPackage,
       globalGridState,
-      state.bets,
       hoveredZoneId,
       runtimeFrameWidth,
       runtimeFrameHeight,
@@ -579,7 +580,6 @@ export function BettingGrid() {
       useInlineSvgLayers,
     ],
   )
-  /* eslint-enable react-hooks/refs */
 
   useLayoutEffect(() => {
     const sync = prevAnimationSyncRef.current

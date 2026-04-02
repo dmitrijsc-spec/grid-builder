@@ -197,7 +197,7 @@ async function performUpsertRemote(userId: string, state: GridProjectsState): Pr
     if (includePartsCount) row.parts_count = parts.length
     return sb.from(TABLE).upsert(row as never, { onConflict: 'user_id' })
   }
-  let main = await tryMain(true)
+  const main = await tryMain(true)
   if (main.error && isMissingPartsCountColumnError(main.error)) {
     throw new Error(
       `Chunked save requires column parts_count on ${TABLE}. ${MIGRATION_HINT}`,
