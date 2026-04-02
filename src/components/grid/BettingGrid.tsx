@@ -229,7 +229,11 @@ export function BettingGrid() {
           ? latestPublishedPackagesRef.current.mobile
           : latestPublishedPackagesRef.current.desktop
       if (selected?.version === 1) return normalizeGridPackage(structuredClone(selected))
-      const fallbackPkg = mode === 'mobile' ? null : (detail?.pkg ?? null)
+      // Mobile: fall back to desktop (or legacy single pkg) when mobile slot was never published.
+      const fallbackPkg =
+        mode === 'mobile'
+          ? (detail?.mobilePkg ?? detail?.desktopPkg ?? detail?.pkg ?? null)
+          : (detail?.pkg ?? detail?.desktopPkg ?? null)
       if (fallbackPkg?.version === 1) return normalizeGridPackage(structuredClone(fallbackPkg))
       return null
     }

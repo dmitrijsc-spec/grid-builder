@@ -909,55 +909,58 @@ export function normalizeGridPackage(pkg: GridPackage): GridPackage {
       pkg.global.clipRect.height = pkg.frame.height
     }
   }
-  if (Array.isArray(pkg.layers)) {
-    pkg.layers = pkg.layers.map((layer) => ({
-      ...layer,
-      originalWidth:
-        typeof layer.originalWidth === 'number' && layer.originalWidth > 0
-          ? layer.originalWidth
-          : (typeof layer.width === 'number' && layer.width > 0 ? layer.width : 1),
-      originalHeight:
-        typeof layer.originalHeight === 'number' && layer.originalHeight > 0
-          ? layer.originalHeight
-          : (typeof layer.height === 'number' && layer.height > 0 ? layer.height : 1),
-      // Ensure zoneId — prevents a post-mount useEffect re-render in the builder
-      zoneId: layer.zoneId ?? (`zone_${String(layer.id).replace(/[^a-zA-Z0-9_]/g, '_')}` as import('../../../game/types').BetZoneId),
-      stateStyles: {
-        default: layer.stateStyles?.default ?? { visible: true, opacity: 1 },
-        hover: layer.stateStyles?.hover ?? { visible: true, opacity: 1 },
-        active: layer.stateStyles?.active ?? { visible: true, opacity: 1 },
-        chipPlaced: layer.stateStyles?.chipPlaced ?? { visible: true, opacity: 1 },
-        disabled: layer.stateStyles?.disabled ?? { visible: true, opacity: 0.9 },
-        locked: layer.stateStyles?.locked ?? { visible: true, opacity: 1 },
-      },
-      locked: layer.locked ?? false,
-      animation: {
-        scope: layer.animation?.scope === 'grid-state' ? 'grid-state' : 'element-state',
-        preset: layer.animation?.preset ?? 'none',
-        trigger: layer.animation?.trigger ?? 'while-active',
-        fromState: layer.animation?.fromState ?? 'any',
-        toState: layer.animation?.toState ?? 'any',
-        fromGridState: layer.animation?.fromGridState ?? 'any',
-        toGridState: layer.animation?.toGridState ?? 'any',
-        durationMs: layer.animation?.durationMs ?? 220,
-        delayMs: layer.animation?.delayMs ?? 0,
-        easing: layer.animation?.easing ?? 'ease-out',
-        intensity: layer.animation?.intensity ?? 1,
-      },
-      globalVisibility: {
-        open: layer.globalVisibility?.open ?? true,
-        closed: layer.globalVisibility?.closed ?? true,
-      },
-      enabledStates: Array.from(
-        new Set(
-          (layer.enabledStates ?? ['default']).map((state) => {
-            const raw = String(state)
-            return raw === 'chip-placed' ? 'chipPlaced' : (state as GridVisualState)
-          }),
-        ),
-      ),
-    }))
+  if (!Array.isArray(pkg.components)) {
+    pkg.components = []
   }
+
+  const layerSource = Array.isArray(pkg.layers) ? pkg.layers : []
+  pkg.layers = layerSource.map((layer) => ({
+    ...layer,
+    originalWidth:
+      typeof layer.originalWidth === 'number' && layer.originalWidth > 0
+        ? layer.originalWidth
+        : (typeof layer.width === 'number' && layer.width > 0 ? layer.width : 1),
+    originalHeight:
+      typeof layer.originalHeight === 'number' && layer.originalHeight > 0
+        ? layer.originalHeight
+        : (typeof layer.height === 'number' && layer.height > 0 ? layer.height : 1),
+    // Ensure zoneId — prevents a post-mount useEffect re-render in the builder
+    zoneId: layer.zoneId ?? (`zone_${String(layer.id).replace(/[^a-zA-Z0-9_]/g, '_')}` as import('../../../game/types').BetZoneId),
+    stateStyles: {
+      default: layer.stateStyles?.default ?? { visible: true, opacity: 1 },
+      hover: layer.stateStyles?.hover ?? { visible: true, opacity: 1 },
+      active: layer.stateStyles?.active ?? { visible: true, opacity: 1 },
+      chipPlaced: layer.stateStyles?.chipPlaced ?? { visible: true, opacity: 1 },
+      disabled: layer.stateStyles?.disabled ?? { visible: true, opacity: 0.9 },
+      locked: layer.stateStyles?.locked ?? { visible: true, opacity: 1 },
+    },
+    locked: layer.locked ?? false,
+    animation: {
+      scope: layer.animation?.scope === 'grid-state' ? 'grid-state' : 'element-state',
+      preset: layer.animation?.preset ?? 'none',
+      trigger: layer.animation?.trigger ?? 'while-active',
+      fromState: layer.animation?.fromState ?? 'any',
+      toState: layer.animation?.toState ?? 'any',
+      fromGridState: layer.animation?.fromGridState ?? 'any',
+      toGridState: layer.animation?.toGridState ?? 'any',
+      durationMs: layer.animation?.durationMs ?? 220,
+      delayMs: layer.animation?.delayMs ?? 0,
+      easing: layer.animation?.easing ?? 'ease-out',
+      intensity: layer.animation?.intensity ?? 1,
+    },
+    globalVisibility: {
+      open: layer.globalVisibility?.open ?? true,
+      closed: layer.globalVisibility?.closed ?? true,
+    },
+    enabledStates: Array.from(
+      new Set(
+        (layer.enabledStates ?? ['default']).map((state) => {
+          const raw = String(state)
+          return raw === 'chip-placed' ? 'chipPlaced' : (state as GridVisualState)
+        }),
+      ),
+    ),
+  }))
   return pkg
 }
 
