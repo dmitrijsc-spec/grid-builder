@@ -196,9 +196,8 @@ export function BettingGrid() {
     (/iP(hone|ad|od)/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1))
   /**
-   * Mobile runtime = narrow band / touch UA (`getRuntimeLayoutMode`). Same package as phones;
-   * must use a flat grid shell here: `perspective` + `rotateX` composites the whole stack to a
-   * GPU bitmap and makes SVG (even inline) look blocky on desktop Chrome at emulated width.
+   * Mobile runtime = narrow band / touch UA (`getRuntimeLayoutMode`). Uses the same `closedMode`
+   * tilt as desktop when the package is `tilted` (`data-perspective='on'`).
    */
   const [gridPackage, setGridPackage] = useState<GridPackage>(
     () => loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage(),
@@ -459,7 +458,7 @@ export function BettingGrid() {
 
   const closedMode = gridPackage.global?.closedMode ?? 'tilted'
   const usePerspectiveShell = closedMode === 'tilted'
-  const perspective = usePerspectiveShell && !isMobileRuntime
+  const perspective = usePerspectiveShell
   const allowMobileAtlas = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
     : false
