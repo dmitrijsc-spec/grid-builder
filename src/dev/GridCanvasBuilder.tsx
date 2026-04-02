@@ -1097,10 +1097,10 @@ export function GridCanvasBuilder() {
     })
   }, [])
 
-  // Mobile grid package: bake every SVG layer/source to PNG once (stored in mobilePkg). iOS WebKit
-  // blurs SVG-in-<img> in the builder; PNG matches insert-time behaviour and stays sharp in-game.
+  // Persist SVG→PNG only on iOS Safari. Raster PNG has fixed pixels — on desktop (or Chrome device mode)
+  // it looks blocky vs vector; iOS WebKit needed PNG for reliable sharpness in builder + game.
   useEffect(() => {
-    if (deviceMode !== 'mobile') return
+    if (deviceMode !== 'mobile' || !isIOSWebKitBuilder) return
     let cancelled = false
     const targets = collectMobileSvgRasterTargets(pkg.layers)
     if (targets.length === 0) return
@@ -1142,7 +1142,7 @@ export function GridCanvasBuilder() {
     return () => {
       cancelled = true
     }
-  }, [deviceMode, pkg.layers, apply])
+  }, [deviceMode, pkg.layers, apply, isIOSWebKitBuilder])
 
   const pushUndoSnapshotNow = () => {
     if (isUndoingRef.current || isRedoingRef.current) return
@@ -1269,11 +1269,11 @@ export function GridCanvasBuilder() {
   }
   pushActiveGridToRuntimeRef.current = pushActiveGridToRuntime
 
-  /** Mobile grid package: store pasted/uploaded SVG as high-res PNG (iOS-friendly). Desktop keeps SVG data URLs. */
+  /** Mobile grid on iOS only: store pasted SVG as PNG. Else keep SVG so desktop / Chrome mobile stay sharp. */
   const resolveLayerSrcFromSvgText = useCallback(
     async (svgText: string, cssW: number, cssH: number) => {
       const svgUrl = svgTextToDataUrl(svgText)
-      if (deviceMode !== 'mobile') return svgUrl
+      if (deviceMode !== 'mobile' || !isIOSWebKitBuilder) return svgUrl
       const mult = resolveMobileBuilderRasterQualityScale()
       try {
         const png = await rasterizeSvgDataUrlToPngDataUrl(svgUrl, cssW, cssH, mult, 8192)
@@ -1283,7 +1283,7 @@ export function GridCanvasBuilder() {
         return svgUrl
       }
     },
-    [deviceMode],
+    [deviceMode, isIOSWebKitBuilder],
   )
 
   const onUploadLayers = async (files: FileList | null) => {
