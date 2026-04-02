@@ -1398,6 +1398,18 @@
   image-rendering: auto;
 }
 
+/* Mobile inline SVG: vectors paint at layout resolution (no <img> bitmap cache). */
+.betting-grid__asset--svg-inline {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.betting-grid__asset--svg-inline > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* iOS WebKit: `backface-visibility: hidden` + `will-change` force each element into its own GPU tile.
    WebKit then rasterizes SVG <img> at whatever CSS-pixel size it first sees and caches the bitmap —
    subsequent layout at a different size stretches stale pixels → pixelation/blurriness.
@@ -1410,6 +1422,7 @@
   }
 
   .betting-grid__asset,
+  .betting-grid__asset--svg-inline,
   .betting-grid__atlas,
   .betting-grid__canvas {
     will-change: auto !important;
@@ -2405,7 +2418,8 @@ button:focus-visible {
 
 .game-frame-shell[data-mobile-preview='on'] .betting-grid,
 .game-frame-shell[data-mobile-preview='on'] .betting-grid__asset-layer,
-.game-frame-shell[data-mobile-preview='on'] .betting-grid__asset {
+.game-frame-shell[data-mobile-preview='on'] .betting-grid__asset,
+.game-frame-shell[data-mobile-preview='on'] .betting-grid__asset--svg-inline {
   opacity: unset;
   filter: none;
 }
@@ -2438,7 +2452,8 @@ button:focus-visible {
 
   .betting-grid,
   .betting-grid__asset-layer,
-  .betting-grid__asset {
+  .betting-grid__asset,
+  .betting-grid__asset--svg-inline {
     opacity: unset;
     filter: none;
   }
@@ -2447,7 +2462,8 @@ button:focus-visible {
     transform: none;
   }
 
-  .betting-grid__asset {
+  .betting-grid__asset,
+  .betting-grid__asset--svg-inline {
     image-rendering: auto;
     transform: none;
     will-change: auto;

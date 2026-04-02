@@ -6,8 +6,6 @@ import {
   displayGridProjectName,
   flushPendingGridProjectsPersist,
   loadGridProjectsState,
-  rasterizeSvgDataUrlToPngDataUrl,
-  resolveMobileBuilderRasterQualityScale,
   resolveRuntimeAtlasResolutionMultiplier,
   mirrorExistingRuntimeSnapshotToDevServer,
   publishGridProjectsState,
@@ -170,35 +168,6 @@ function extractSvgText(raw: string): string | null {
   if (trimmed.startsWith('<svg') && trimmed.includes('</svg>')) return trimmed
   const match = trimmed.match(/<svg[\s\S]*?<\/svg>/i)
   return match ? match[0] : null
-}
-
-function isSvgDataUrl(src: string): boolean {
-  return src.startsWith('data:image/svg+xml')
-}
-
-/** Collect SVG layer sources in the mobile package so we can bake them to PNG (iOS-safe). */
-function collectMobileSvgRasterTargets(
-  layers: import('../components/grid/builder/types').GridLayer[],
-): { layerId: string; state: GridVisualState | 'default'; svgUrl: string; w: number; h: number }[] {
-  const out: { layerId: string; state: GridVisualState | 'default'; svgUrl: string; w: number; h: number }[] = []
-  for (const layer of layers) {
-    const push = (raw: string, w: number, h: number, state: GridVisualState | 'default') => {
-      const normalized = normalizeSvgDataUrl(raw)
-      if (!isSvgDataUrl(normalized)) return
-      out.push({ layerId: layer.id, state, svgUrl: normalized, w, h })
-    }
-    push(layer.src, layer.width, layer.height, 'default')
-    for (const st of STATES) {
-      if (st === 'default') continue
-      const sv = layer.stateSvgs?.[st]
-      if (!sv) continue
-      const r = layer.stateRects?.[st]
-      const w = r?.width && r.width > 0 ? r.width : layer.width
-      const h = r?.height && r.height > 0 ? r.height : layer.height
-      push(sv, w, h, st)
-    }
-  }
-  return out
 }
 
 function parseSvgNaturalSize(svgText: string): { width: number; height: number } | null {
@@ -1097,53 +1066,6 @@ export function GridCanvasBuilder() {
     })
   }, [])
 
-  // Persist SVG→PNG only on iOS Safari. Raster PNG has fixed pixels — on desktop (or Chrome device mode)
-  // it looks blocky vs vector; iOS WebKit needed PNG for reliable sharpness in builder + game.
-  useEffect(() => {
-    if (deviceMode !== 'mobile' || !isIOSWebKitBuilder) return
-    let cancelled = false
-    const targets = collectMobileSvgRasterTargets(pkg.layers)
-    if (targets.length === 0) return
-
-    const mult = resolveMobileBuilderRasterQualityScale()
-    void (async () => {
-      const results: { layerId: string; state: GridVisualState | 'default'; png: string }[] = []
-      for (const t of targets) {
-        if (cancelled) return
-        try {
-          const png = await rasterizeSvgDataUrlToPngDataUrl(t.svgUrl, t.w, t.h, mult, 8192)
-          if (png) results.push({ layerId: t.layerId, state: t.state, png })
-        } catch (e) {
-          console.error('[SciBo] mobile grid SVG→PNG bake failed:', e)
-        }
-      }
-      if (cancelled || results.length === 0) return
-      apply((currentPkg) => ({
-        ...currentPkg,
-        layers: currentPkg.layers.map((l) => {
-          const forLayer = results.filter((r) => r.layerId === l.id)
-          if (forLayer.length === 0) return l
-          let next: GridLayer = { ...l }
-          for (const r of forLayer) {
-            if (r.state === 'default') {
-              next = { ...next, src: r.png }
-            } else {
-              next = {
-                ...next,
-                stateSvgs: { ...next.stateSvgs, [r.state]: r.png },
-              }
-            }
-          }
-          return next
-        }),
-      }))
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [deviceMode, pkg.layers, apply, isIOSWebKitBuilder])
-
   const pushUndoSnapshotNow = () => {
     if (isUndoingRef.current || isRedoingRef.current) return
     // New deliberate action clears redo stack
@@ -1269,22 +1191,8 @@ export function GridCanvasBuilder() {
   }
   pushActiveGridToRuntimeRef.current = pushActiveGridToRuntime
 
-  /** Mobile grid on iOS only: store pasted SVG as PNG. Else keep SVG so desktop / Chrome mobile stay sharp. */
-  const resolveLayerSrcFromSvgText = useCallback(
-    async (svgText: string, cssW: number, cssH: number) => {
-      const svgUrl = svgTextToDataUrl(svgText)
-      if (deviceMode !== 'mobile' || !isIOSWebKitBuilder) return svgUrl
-      const mult = resolveMobileBuilderRasterQualityScale()
-      try {
-        const png = await rasterizeSvgDataUrlToPngDataUrl(svgUrl, cssW, cssH, mult, 8192)
-        return png ?? svgUrl
-      } catch (e) {
-        console.error('[SciBo] rasterize SVG for mobile layer failed:', e)
-        return svgUrl
-      }
-    },
-    [deviceMode, isIOSWebKitBuilder],
-  )
+  /** Mobile and desktop packages keep SVG data URLs; the game renders mobile SVG as inline DOM on small viewports. */
+  const resolveLayerSrcFromSvgText = useCallback(async (svgText: string) => svgTextToDataUrl(svgText), [])
 
   const onUploadLayers = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -1307,7 +1215,7 @@ export function GridCanvasBuilder() {
       )
       const isSvgFile = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)
       const src = isSvgFile
-        ? await resolveLayerSrcFromSvgText(svgText, initialRect.width, initialRect.height)
+        ? await resolveLayerSrcFromSvgText(svgText)
         : await readAsDataUrl(file)
       const layer: GridLayer = {
         id: uid('layer'),
@@ -1373,7 +1281,7 @@ export function GridCanvasBuilder() {
       },
       pkg.frame,
     )
-    const src = await resolveLayerSrcFromSvgText(svgText, initialRect.width, initialRect.height)
+    const src = await resolveLayerSrcFromSvgText(svgText)
     const layer: GridLayer = {
       id: uid('layer'),
       name,
@@ -1425,17 +1333,14 @@ export function GridCanvasBuilder() {
 
   const replaceSelectedLayerFromSvgText = async (svgText: string) => {
     if (!selectedLayer) return
-    const src = await resolveLayerSrcFromSvgText(svgText, selectedLayer.width, selectedLayer.height)
+    const src = await resolveLayerSrcFromSvgText(svgText)
     updateLayer(selectedLayer.id, { src })
   }
 
   const setStateSvgFromText = async (layerId: string, state: GridVisualState, svgText: string) => {
     const target = pkg.layers.find((l) => l.id === layerId)
     if (!target) return
-    const rect = target.stateRects?.[state]
-    const w = rect?.width && rect.width > 0 ? rect.width : target.width
-    const h = rect?.height && rect.height > 0 ? rect.height : target.height
-    const src = await resolveLayerSrcFromSvgText(svgText, w, h)
+    const src = await resolveLayerSrcFromSvgText(svgText)
     apply((current) => ({
       ...current,
       layers: current.layers.map((layer) =>
@@ -1467,7 +1372,7 @@ export function GridCanvasBuilder() {
     if (state === 'default') {
       const target = pkg.layers.find((l) => l.id === layerId)
       if (!target) return
-      const src = await resolveLayerSrcFromSvgText(svgText, target.width, target.height)
+      const src = await resolveLayerSrcFromSvgText(svgText)
       updateLayer(layerId, { src })
       return
     }

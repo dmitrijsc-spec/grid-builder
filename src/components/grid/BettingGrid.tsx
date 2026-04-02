@@ -39,24 +39,28 @@ function snapCssPx(cssPx: number): number {
  */
 const _svgNormCache = new Map<string, string>()
 
-function normalizeSvgSrc(src: string): string {
-  if (!src) return src
-  const cached = _svgNormCache.get(src)
-  if (cached) return cached
-
-  let svgText: string | null = null
+function decodeDataUrlToSvgText(src: string): string | null {
+  if (!src) return null
   if (src.startsWith('data:image/svg+xml;charset=utf-8,')) {
-    svgText = decodeURIComponent(src.slice('data:image/svg+xml;charset=utf-8,'.length))
-  } else if (src.startsWith('data:image/svg+xml,')) {
-    svgText = decodeURIComponent(src.slice('data:image/svg+xml,'.length))
-  } else if (src.startsWith('data:image/svg+xml;base64,')) {
-    try { svgText = atob(src.slice('data:image/svg+xml;base64,'.length)) } catch { /* skip */ }
+    return decodeURIComponent(src.slice('data:image/svg+xml;charset=utf-8,'.length))
   }
+  if (src.startsWith('data:image/svg+xml,')) {
+    return decodeURIComponent(src.slice('data:image/svg+xml,'.length))
+  }
+  if (src.startsWith('data:image/svg+xml;base64,')) {
+    try {
+      return atob(src.slice('data:image/svg+xml;base64,'.length))
+    } catch {
+      return null
+    }
+  }
+  return null
+}
 
-  if (!svgText) { _svgNormCache.set(src, src); return src }
-
+/** Same rules as normalizeSvgSrc but returns raw SVG markup (for inline rendering). */
+function normalizeSvgDocumentText(svgText: string): string {
   const tagMatch = svgText.match(/<svg(\s[^>]*)?>/)
-  if (!tagMatch) { _svgNormCache.set(src, src); return src }
+  if (!tagMatch) return svgText
 
   let attrs = tagMatch[1] ?? ''
   const wMatch = attrs.match(/\bwidth\s*=\s*["']([^"']+)["']/)
@@ -74,10 +78,73 @@ function normalizeSvgSrc(src: string): string {
   attrs = attrs.replace(/\bwidth\s*=\s*["'][^"']*["']/g, '')
   attrs = attrs.replace(/\bheight\s*=\s*["'][^"']*["']/g, '')
 
-  const normalized = svgText.replace(/<svg(\s[^>]*)?>/, `<svg${attrs}>`)
+  return svgText.replace(/<svg(\s[^>]*)?>/, `<svg${attrs}>`)
+}
+
+function normalizeSvgSrc(src: string): string {
+  if (!src) return src
+  const cached = _svgNormCache.get(src)
+  if (cached) return cached
+
+  const svgText = decodeDataUrlToSvgText(src)
+  if (!svgText) {
+    _svgNormCache.set(src, src)
+    return src
+  }
+
+  const normalized = normalizeSvgDocumentText(svgText)
+  const tagMatch = normalized.match(/<svg(\s[^>]*)?>/)
+  if (!tagMatch) {
+    _svgNormCache.set(src, src)
+    return src
+  }
+
   const result = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalized)}`
   _svgNormCache.set(src, result)
   return result
+}
+
+/** Mobile: paint SVG as real DOM vectors instead of `<img>` so WebKit uses layout DPR (no low-res bitmap stretch). */
+const _mobileInlineSvgCache = new Map<string, string | null>()
+
+function prepareMobileInlineSvgMarkup(src: string): string | null {
+  if (!src.startsWith('data:image/svg+xml')) return null
+  if (_mobileInlineSvgCache.has(src)) {
+    return _mobileInlineSvgCache.get(src) ?? null
+  }
+  try {
+    const raw = decodeDataUrlToSvgText(src)
+    if (!raw) {
+      _mobileInlineSvgCache.set(src, null)
+      return null
+    }
+    const normalized = normalizeSvgDocumentText(raw)
+    const doc = new DOMParser().parseFromString(normalized, 'image/svg+xml')
+    const svg = doc.querySelector('svg')
+    if (!svg) {
+      _mobileInlineSvgCache.set(src, null)
+      return null
+    }
+    doc.querySelectorAll('script').forEach((el) => el.remove())
+    for (const attr of [...svg.attributes]) {
+      if (attr.name.toLowerCase().startsWith('on')) svg.removeAttribute(attr.name)
+    }
+    svg.querySelectorAll('*').forEach((el) => {
+      for (const attr of [...el.attributes]) {
+        const n = attr.name.toLowerCase()
+        if (n.startsWith('on')) el.removeAttribute(attr.name)
+        if ((n === 'href' || n === 'xlink:href') && /^\s*javascript:/i.test(attr.value)) {
+          el.removeAttribute(attr.name)
+        }
+      }
+    })
+    const out = svg.outerHTML
+    _mobileInlineSvgCache.set(src, out)
+    return out
+  } catch {
+    _mobileInlineSvgCache.set(src, null)
+    return null
+  }
 }
 
 function BetCell({
@@ -496,6 +563,39 @@ export function BettingGrid() {
         }),
     [gridPackage.layers],
   )
+
+  const closedMode = gridPackage.global?.closedMode ?? 'tilted'
+  const usePerspectiveShell = closedMode === 'tilted'
+  // Desktop/Android: 3D shell for smooth tilt. iPhone WebKit: skip perspective + rotateX — it rasterizes the
+  // whole SVG <img> stack at low res (blurry/pixelated) even at rotateX(0deg). Flat shell keeps vectors sharp at DPR.
+  const perspective = usePerspectiveShell && !iosMobileGridWorkarounds
+  const allowMobileAtlas = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
+    : false
+  const iosCanvasParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('iosCanvas')
+      : null
+  const publishedMobileAtlasSrc =
+    gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
+    ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
+    ?? null
+  const useMobileAtlasRendering =
+    isMobileRuntime
+    && !isIOSWebKit
+    && Boolean(publishedMobileAtlasSrc)
+    && allowMobileAtlas
+  const allowIOSCanvasFallback =
+    typeof window !== 'undefined' && iosCanvasParam === '1'
+  const useIOSCanvasRendering =
+    allowIOSCanvasFallback
+    && isIOSWebKit
+    && !useMobileAtlasRendering
+    && !usePerspectiveShell
+
+  const useMobileInlineSvgLayers =
+    isMobileRuntime && !useMobileAtlasRendering && !useIOSCanvasRendering
+
   /* eslint-disable react-hooks/refs -- previousLayerStateRef read for hover transition baseline */
   const renderLayers = useMemo(
     () =>
@@ -536,11 +636,16 @@ export function BettingGrid() {
             width: visual.rect.width,
             height: visual.rect.height,
           }
+          const inlineSvgMarkup = useMobileInlineSvgLayers
+            ? prepareMobileInlineSvgMarkup(visual.src)
+            : null
+          const srcForImg = iosMobileGridWorkarounds ? normalizeSvgSrc(visual.src) : visual.src
           return {
             id: layer.id,
             name: layer.name,
             activeState,
-            src: iosMobileGridWorkarounds ? normalizeSvgSrc(visual.src) : visual.src,
+            src: srcForImg,
+            inlineSvgMarkup,
             rect: shiftedRect,
             style: {
               ...(iosMobileGridWorkarounds && mobileSnapSize ? {
@@ -568,6 +673,7 @@ export function BettingGrid() {
           name: string
           activeState: 'default' | 'hover'
           src: string
+          inlineSvgMarkup: string | null
           rect: { x: number; y: number; width: number; height: number }
           style: CSSProperties
         } => item !== null),
@@ -583,6 +689,7 @@ export function BettingGrid() {
       iosMobileGridWorkarounds,
       mobileSnapSize,
       layerAnimationLayoutFlush,
+      useMobileInlineSvgLayers,
     ],
   )
   /* eslint-enable react-hooks/refs */
@@ -606,11 +713,6 @@ export function BettingGrid() {
     for (const layer of renderLayers) next[layer.id] = layer.activeState
     previousLayerStateRef.current = next
   }, [renderLayers])
-  const closedMode = gridPackage.global?.closedMode ?? 'tilted'
-  const usePerspectiveShell = closedMode === 'tilted'
-  // Desktop/Android: 3D shell for smooth tilt. iPhone WebKit: skip perspective + rotateX — it rasterizes the
-  // whole SVG <img> stack at low res (blurry/pixelated) even at rotateX(0deg). Flat shell keeps vectors sharp at DPR.
-  const perspective = usePerspectiveShell && !iosMobileGridWorkarounds
   // Match builder default: `previewScale = pkg.frame.scale * previewZoom` (previewZoom 1 in game).
   const runtimeScale =
     typeof gridPackage.frame?.scale === 'number' && gridPackage.frame.scale > 0
@@ -619,33 +721,6 @@ export function BettingGrid() {
   const runtimeWidthPx = runtimeFrameWidth * runtimeScale
   const runtimeWidthStyle = `${runtimeWidthPx}px`
   const runtimeClipPath = 'none'
-  const allowMobileAtlas = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
-    : false
-  const iosCanvasParam =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('iosCanvas')
-      : null
-  const publishedMobileAtlasSrc =
-    gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
-    ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
-    ?? null
-  // Mobile PNG atlas (optional `?mobileAtlas=1`) is for Android-class browsers; iOS keeps SVG `<img>`
-  // stack so the engine rasterizes vectors at device DPR (sharp grid vs blurry baked atlas).
-  const useMobileAtlasRendering =
-    isMobileRuntime
-    && !isIOSWebKit
-    && Boolean(publishedMobileAtlasSrc)
-    && allowMobileAtlas
-  // iOS WebKit: `perspective` + `rotateX` on `.betting-grid` rasterizes descendants at low res; `<canvas>` is worst.
-  // Default: `<img>` SVG stack (`?iosCanvas=1` enables canvas only while the scene is flat, e.g. betting open).
-  const allowIOSCanvasFallback =
-    typeof window !== 'undefined' && iosCanvasParam === '1'
-  const useIOSCanvasRendering =
-    allowIOSCanvasFallback
-    && isIOSWebKit
-    && !useMobileAtlasRendering
-    && !usePerspectiveShell
 
   const baseTiltAngle = gridPackage.global?.tiltAngleDeg ?? 56
   // Match builder: tilt follows the same `open | closed` as layers/globalVisibility (gridViewState + phase),
@@ -821,18 +896,27 @@ export function BettingGrid() {
           <canvas ref={canvasRef} className="betting-grid__canvas" aria-hidden />
         ) : (
           <div className="betting-grid__asset-layer" aria-hidden>
-            {renderLayers.map((layer) => (
-              <img
-                key={`${layer.id}:${layer.activeState}:${layer.src}`}
-                className="betting-grid__asset"
-                src={layer.src}
-                alt=""
-                draggable={false}
-                decoding="async"
-                loading="eager"
-                style={layer.style}
-              />
-            ))}
+            {renderLayers.map((layer) =>
+              layer.inlineSvgMarkup ? (
+                <div
+                  key={`${layer.id}:${layer.activeState}`}
+                  className="betting-grid__asset betting-grid__asset--svg-inline"
+                  style={layer.style}
+                  dangerouslySetInnerHTML={{ __html: layer.inlineSvgMarkup }}
+                />
+              ) : (
+                <img
+                  key={`${layer.id}:${layer.activeState}`}
+                  className="betting-grid__asset"
+                  src={layer.src}
+                  alt=""
+                  draggable={false}
+                  decoding="async"
+                  loading="eager"
+                  style={layer.style}
+                />
+              ),
+            )}
           </div>
         )}
         <div className="betting-grid__zones">
