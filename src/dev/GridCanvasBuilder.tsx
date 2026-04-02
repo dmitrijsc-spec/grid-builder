@@ -33,6 +33,11 @@ import type {
   GridProjectsState,
   GridVisualState,
 } from '../components/grid/builder/types'
+import {
+  normalizeSvgDocumentText,
+  normalizeSvgDataUrlForImg,
+  prepareInlineSvgMarkup,
+} from '../components/grid/svgDataUrl'
 
 const STATES: GridVisualState[] = ['default', 'hover', 'active', 'chipPlaced', 'disabled', 'locked']
 type DragMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se'
@@ -120,46 +125,8 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function stripSvgIntrinsicSize(svgText: string): string {
-  const tagMatch = svgText.match(/<svg(\s[^>]*)?>/)
-  if (!tagMatch) return svgText
-  let attrs = tagMatch[1] ?? ''
-  const wMatch = attrs.match(/\bwidth\s*=\s*["']([^"']+)["']/)
-  const hMatch = attrs.match(/\bheight\s*=\s*["']([^"']+)["']/)
-  if (!(/\bviewBox\s*=/.test(attrs)) && wMatch && hMatch) {
-    const w = parseFloat(wMatch[1])
-    const h = parseFloat(hMatch[1])
-    if (w > 0 && h > 0) attrs += ` viewBox="0 0 ${w} ${h}"`
-  }
-  attrs = attrs.replace(/\bwidth\s*=\s*["'][^"']*["']/g, '')
-  attrs = attrs.replace(/\bheight\s*=\s*["'][^"']*["']/g, '')
-  return svgText.replace(/<svg(\s[^>]*)?>/, `<svg${attrs}>`)
-}
-
 function svgTextToDataUrl(svgText: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stripSvgIntrinsicSize(svgText))}`
-}
-
-const _builderSvgNormCache = new Map<string, string>()
-
-function normalizeSvgDataUrl(src: string): string {
-  if (!src) return src
-  const hit = _builderSvgNormCache.get(src)
-  if (hit) return hit
-
-  let svgText: string | null = null
-  if (src.startsWith('data:image/svg+xml;charset=utf-8,')) {
-    svgText = decodeURIComponent(src.slice('data:image/svg+xml;charset=utf-8,'.length))
-  } else if (src.startsWith('data:image/svg+xml,')) {
-    svgText = decodeURIComponent(src.slice('data:image/svg+xml,'.length))
-  } else if (src.startsWith('data:image/svg+xml;base64,')) {
-    try { svgText = atob(src.slice('data:image/svg+xml;base64,'.length)) } catch { /* skip */ }
-  }
-
-  if (!svgText) { _builderSvgNormCache.set(src, src); return src }
-  const result = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stripSvgIntrinsicSize(svgText))}`
-  _builderSvgNormCache.set(src, result)
-  return result
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalizeSvgDocumentText(svgText))}`
 }
 
 function extractSvgText(raw: string): string | null {
@@ -378,6 +345,19 @@ const CanvasLayer = memo(function CanvasLayer({
     ...animationStyle,
     opacity: o,
   } as CSSProperties
+  const inline = prepareInlineSvgMarkup(src)
+  if (inline) {
+    return (
+      <div
+        data-layer-id={layerId}
+        className="grid-builder__layer-preview grid-builder__layer-preview--svg-inline"
+        style={style}
+        aria-label={alt}
+        role="img"
+        dangerouslySetInnerHTML={{ __html: inline }}
+      />
+    )
+  }
   return (
     <img
       data-layer-id={layerId}
@@ -582,7 +562,7 @@ const LayerItem = memo(function LayerItem({
       </span>
       <span className="grid-builder__layer-main">
         <span className="grid-builder__layer-thumb" aria-hidden>
-          <img className="grid-builder__layer-thumb-image" src={normalizeSvgDataUrl(layer.src)} alt="" />
+          <img className="grid-builder__layer-thumb-image" src={normalizeSvgDataUrlForImg(layer.src)} alt="" />
         </span>
         <span className="grid-builder__layer-meta">
           {isRenaming ? (
@@ -825,7 +805,7 @@ export function GridCanvasBuilder() {
         stateKey === 'default'
           ? layer.src
           : layer.stateSvgs?.[stateKey] ?? layer.src
-      const src = normalizeSvgDataUrl(rawSrc)
+      const src = normalizeSvgDataUrlForImg(rawSrc)
       const rect =
         stateKey === 'default'
           ? { x: layer.x, y: layer.y, width: layer.width, height: layer.height }

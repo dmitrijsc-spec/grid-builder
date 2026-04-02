@@ -3906,7 +3906,8 @@ button:focus-visible {
   .grid-builder__canvas-stage.is-tilted .grid-builder__canvas {
     transform: none !important;
   }
-  .grid-builder__layer-preview {
+  .grid-builder__layer-preview,
+  .grid-builder__layer-preview--svg-inline {
     backface-visibility: visible !important;
     -webkit-backface-visibility: visible !important;
     object-fit: fill;
@@ -3980,6 +3981,16 @@ button:focus-visible {
 .grid-builder__layer-preview {
   position: absolute;
   pointer-events: none;
+}
+
+.grid-builder__layer-preview--svg-inline {
+  overflow: hidden;
+}
+
+.grid-builder__layer-preview--svg-inline > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .grid-builder__clip-rect {
