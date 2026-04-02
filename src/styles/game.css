@@ -3856,25 +3856,8 @@ button:focus-visible {
   transform-origin: center bottom;
 }
 
-/* iOS WebKit: any perspective / preserve-3d / translateZ / rotateX on ancestors forces a
-   composited bitmap for descendant <img> (PNG or SVG) at the wrong resolution → mush.
-   Flatten the entire builder preview stack on touch Safari, including “tilted” closed state. */
+/* iOS WebKit: keep layer previews out of stale tiled bitmaps; allow canvas tilt (matches game). */
 @supports (-webkit-touch-callout: none) {
-  .grid-builder__canvas-stage {
-    perspective: none !important;
-  }
-  .grid-builder__canvas-stage.is-closed .grid-builder__canvas {
-    filter: none !important;
-  }
-  .grid-builder__canvas {
-    transform-style: flat !important;
-    transform: none !important;
-    filter: none !important;
-    transition: none !important;
-  }
-  .grid-builder__canvas-stage.is-tilted .grid-builder__canvas {
-    transform: none !important;
-  }
   .grid-builder__layer-preview,
   .grid-builder__layer-preview--svg-inline {
     backface-visibility: visible !important;

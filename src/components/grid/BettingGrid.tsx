@@ -586,14 +586,16 @@ export function BettingGrid() {
 
   useLayoutEffect(() => {
     const sync = prevAnimationSyncRef.current
-    const gridChanged = sync.grid !== globalGridState
     const hoverChanged = sync.hover !== hoveredZoneId
     if (prevGridForAnimationRef.current !== globalGridState) {
       prevGridForAnimationRef.current = globalGridState
     }
     sync.grid = globalGridState
     sync.hover = hoveredZoneId
-    if (gridChanged || hoverChanged) {
+    // Only hover needs an extra layout pass for stuck layer-transition CSS; grid open/closed is
+    // already a dependency of `renderLayers`, and flushing here re-ran the memo with prevGrid already
+    // updated — which killed in-flight grid-state layer styles mid-tilt.
+    if (hoverChanged) {
       setLayerAnimationLayoutFlush((n) => n + 1)
     }
   }, [globalGridState, hoveredZoneId])
@@ -645,7 +647,8 @@ export function BettingGrid() {
     }
   }, [renderLayers, useIOSCanvasRendering])
 
-  const useMobileLayoutSnap = isMobileRuntime
+  /** Percent-based layer layout when 3D tilt is enabled — avoids ResizeObserver/snapped px fighting rotateX (jitter / “double render”). */
+  const useMobileLayoutSnap = isMobileRuntime && !usePerspectiveShell
   useLayoutEffect(() => {
     if (!useMobileLayoutSnap) {
       setMobileSnapSize(null)
