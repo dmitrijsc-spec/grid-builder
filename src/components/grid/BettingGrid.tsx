@@ -195,8 +195,11 @@ export function BettingGrid() {
     typeof navigator !== 'undefined' &&
     (/iP(hone|ad|od)/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1))
-  /** Subpixel snap + SVG normalize + animation strip: WebKit-on-iOS only. Narrow desktop view is still "mobile" layout but Chromium renders SVG sharply with %. */
-  const iosMobileGridWorkarounds = isMobileRuntime && isIOSWebKit
+  /**
+   * Mobile runtime = narrow band / touch UA (`getRuntimeLayoutMode`). Same package as phones;
+   * must use a flat grid shell here: `perspective` + `rotateX` composites the whole stack to a
+   * GPU bitmap and makes SVG (even inline) look blocky on desktop Chrome at emulated width.
+   */
   const [gridPackage, setGridPackage] = useState<GridPackage>(
     () => loadGridPackage(detectViewportMode()) ?? createDefaultGridPackage(),
   )
@@ -452,9 +455,7 @@ export function BettingGrid() {
 
   const closedMode = gridPackage.global?.closedMode ?? 'tilted'
   const usePerspectiveShell = closedMode === 'tilted'
-  // Desktop/Android: 3D shell for smooth tilt. iPhone WebKit: skip perspective + rotateX — it rasterizes the
-  // whole SVG <img> stack at low res (blurry/pixelated) even at rotateX(0deg). Flat shell keeps vectors sharp at DPR.
-  const perspective = usePerspectiveShell && !iosMobileGridWorkarounds
+  const perspective = usePerspectiveShell && !isMobileRuntime
   const allowMobileAtlas = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
     : false
@@ -512,7 +513,7 @@ export function BettingGrid() {
             activeState,
             prevGrid,
             globalGridState,
-            iosMobileGridWorkarounds ? { mobileStrip: true } : undefined,
+            isMobileRuntime ? { mobileStrip: true } : undefined,
           )
           const animationOpacity = animationStyle.opacity as number | undefined
           if (!visual.visible) return null
@@ -534,7 +535,7 @@ export function BettingGrid() {
             inlineSvgMarkup,
             rect: shiftedRect,
             style: {
-              ...(iosMobileGridWorkarounds && mobileSnapSize ? {
+              ...(isMobileRuntime && mobileSnapSize ? {
                 left: `${snapCssPx((shiftedRect.x / runtimeFrameWidth) * mobileSnapSize.w)}px`,
                 top: `${snapCssPx((shiftedRect.y / runtimeFrameHeight) * mobileSnapSize.h)}px`,
                 width: `${snapCssPx((shiftedRect.width / runtimeFrameWidth) * mobileSnapSize.w)}px`,
@@ -572,7 +573,7 @@ export function BettingGrid() {
       runtimeFrameHeight,
       runtimeOriginX,
       runtimeOriginY,
-      iosMobileGridWorkarounds,
+      isMobileRuntime,
       mobileSnapSize,
       layerAnimationLayoutFlush,
       useInlineSvgLayers,
@@ -641,7 +642,7 @@ export function BettingGrid() {
     }
   }, [renderLayers, useIOSCanvasRendering])
 
-  const useMobileLayoutSnap = iosMobileGridWorkarounds
+  const useMobileLayoutSnap = isMobileRuntime
   useLayoutEffect(() => {
     if (!useMobileLayoutSnap) {
       setMobileSnapSize(null)
@@ -742,6 +743,7 @@ export function BettingGrid() {
     <div
       ref={gridShellRef}
       className="betting-grid-shell"
+      data-grid-layout={isMobileRuntime ? 'mobile' : 'desktop'}
       data-perspective={perspective ? 'on' : 'off'}
       data-mobile-pixel-snap={mobileSnapSize && useMobileLayoutSnap ? 'on' : undefined}
       style={

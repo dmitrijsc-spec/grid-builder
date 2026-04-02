@@ -394,7 +394,10 @@ function detectMobileRuntime(): boolean {
   return false
 }
 
-/** Use the same rules as loadGridPackage / runtime snapshot selection. */
+/**
+ * Drives which package is loaded (`mobilePkg` vs `pkg`) and BettingGrid shell mode (`data-grid-layout`).
+ * Includes narrow desktop viewports (e.g. max-width 900px) — not only phones.
+ */
 export function getRuntimeLayoutMode(): RuntimeDeviceMode {
   return detectMobileRuntime() ? 'mobile' : 'desktop'
 }

@@ -1286,6 +1286,28 @@
   margin-inline: auto;
 }
 
+/* Mobile layout (narrow band / touch): drop layout containment + isolation so vectors are not flattened early. */
+.betting-grid-shell[data-grid-layout='mobile'] {
+  isolation: auto;
+  contain: none;
+}
+
+.betting-grid-shell[data-grid-layout='mobile'] .betting-grid {
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+
+.betting-grid-shell[data-grid-layout='mobile'] .betting-grid__asset-layer {
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+
+.betting-grid-shell[data-grid-layout='mobile'] .betting-grid__asset,
+.betting-grid-shell[data-grid-layout='mobile'] .betting-grid__asset--svg-inline {
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+
 .betting-grid-shell[data-perspective='on'] {
   perspective: 1200px;
   perspective-origin: 50% 35%;
@@ -1408,6 +1430,7 @@
   display: block;
   width: 100%;
   height: 100%;
+  shape-rendering: geometricPrecision;
 }
 
 /* iOS WebKit: `backface-visibility: hidden` + `will-change` force each element into its own GPU tile.
