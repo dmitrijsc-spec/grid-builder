@@ -1481,6 +1481,8 @@
 .betting-grid-shell[data-perspective='on'] .betting-grid {
   transform-style: preserve-3d;
   will-change: transform;
+  /* Vars live on `.betting-grid` (inline) so iOS WebKit transitions transform when open→closed. */
+  transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
   /* Same transform list for open (0deg / scale 1) and closed so transition interpolates smoothly. */
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
     scale(var(--grid-tilt-scale, 1));
@@ -2496,12 +2498,14 @@ button:focus-visible {
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
     transform-style: preserve-3d;
+    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
     transform-origin: center bottom;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
+    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
     transform-origin: center bottom;

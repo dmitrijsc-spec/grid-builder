@@ -728,8 +728,16 @@ export function BettingGrid() {
   ])
 
   /* Snapped box: dimensions come from CSS vars (see game.css) so they win over width:100%!important on mobile. */
-  const gridBoxStyle: CSSProperties =
-    mobileSnapSize && useMobileLayoutSnap
+  const tiltCssVars = usePerspectiveShell
+    ? ({
+        '--grid-tilt-angle': `${tiltAngleDeg}deg`,
+        '--grid-tilt-scale': `${tiltScale}`,
+      } as CSSProperties)
+    : {}
+
+  const gridBoxStyle: CSSProperties = {
+    ...tiltCssVars,
+    ...(mobileSnapSize && useMobileLayoutSnap
       ? {
           minHeight: 0,
           maxHeight: 'none',
@@ -743,7 +751,8 @@ export function BettingGrid() {
           height: 'auto',
           minHeight: 0,
           clipPath: runtimeClipPath,
-        }
+        }),
+  }
 
   return (
     <div
@@ -754,8 +763,6 @@ export function BettingGrid() {
       data-mobile-pixel-snap={mobileSnapSize && useMobileLayoutSnap ? 'on' : undefined}
       style={
         {
-          '--grid-tilt-angle': `${tiltAngleDeg}deg`,
-          '--grid-tilt-scale': `${tiltScale}`,
           ...(mobileSnapSize && useMobileLayoutSnap
             ? ({
                 '--betting-grid-snapped-w': `${mobileSnapSize.w}px`,
