@@ -499,7 +499,6 @@ export function BettingGrid() {
             globalGridState === 'open'
               ? (layer.globalVisibility?.open ?? true)
               : (layer.globalVisibility?.closed ?? true)
-          if (!globalVisible) return null
 
           const activeState: GridVisualState = layer.zoneId
             ? (globalGridState === 'open' && hoveredZoneId === layer.zoneId ? 'hover' : 'default')
@@ -520,7 +519,6 @@ export function BettingGrid() {
             isMobileRuntime ? { mobileStrip: true } : undefined,
           )
           const animationOpacity = animationStyle.opacity as number | undefined
-          if (!visual.visible) return null
           const shiftedRect = {
             x: visual.rect.x - runtimeOriginX,
             y: visual.rect.y - runtimeOriginY,
@@ -531,6 +529,9 @@ export function BettingGrid() {
             ? prepareInlineSvgMarkup(visual.src)
             : null
           const srcForImg = normalizeSvgDataUrlForImg(visual.src)
+          const effectivelyHidden = !globalVisible || !visual.visible
+          const baseOpacity =
+            animationOpacity === undefined ? visual.opacity : visual.opacity * animationOpacity
           return {
             id: layer.id,
             name: layer.name,
@@ -551,23 +552,14 @@ export function BettingGrid() {
                 height: `${(shiftedRect.height / runtimeFrameHeight) * 100}%`,
               }),
               ...animationStyle,
-              opacity:
-                animationOpacity === undefined
-                  ? visual.opacity
-                  : visual.opacity * animationOpacity,
+              opacity: effectivelyHidden ? 0 : baseOpacity,
+              ...(effectivelyHidden
+                ? { visibility: 'hidden' as const, pointerEvents: 'none' as const }
+                : {}),
               zIndex: layer.zIndex,
             } as CSSProperties,
           }
         })
-        .filter((item): item is {
-          id: string
-          name: string
-          activeState: 'default' | 'hover'
-          src: string
-          inlineSvgMarkup: string | null
-          rect: { x: number; y: number; width: number; height: number }
-          style: CSSProperties
-        } => item !== null)
     },
     [
       gridPackage,
@@ -800,14 +792,14 @@ export function BettingGrid() {
             {renderLayers.map((layer) =>
               layer.inlineSvgMarkup ? (
                 <div
-                  key={`${layer.id}:${layer.activeState}`}
+                  key={layer.id}
                   className="betting-grid__asset betting-grid__asset--svg-inline"
                   style={layer.style}
                   dangerouslySetInnerHTML={{ __html: layer.inlineSvgMarkup }}
                 />
               ) : (
                 <img
-                  key={`${layer.id}:${layer.activeState}`}
+                  key={layer.id}
                   className="betting-grid__asset"
                   src={layer.src}
                   alt=""
