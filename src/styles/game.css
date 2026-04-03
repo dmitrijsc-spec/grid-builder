@@ -1485,6 +1485,7 @@
 .betting-grid-shell[data-perspective='on'] .betting-grid {
   position: relative;
   display: block;
+  overflow: visible;
   transform: none;
   transition: none;
   transform-style: flat;
@@ -1494,13 +1495,15 @@
 .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
   position: absolute;
   inset: 0;
+  overflow: visible;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   will-change: transform;
   /* Vars on this node (inline) — same element that transitions. */
   transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
     scale(var(--grid-tilt-scale, 1));
-  transform-origin: center bottom;
+  transform-origin: 50% 100%;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
@@ -2521,11 +2524,13 @@ button:focus-visible {
   }
 
   .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
+    overflow: visible;
     transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
     transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
-    transform-origin: center bottom;
+    transform-origin: 50% 100%;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
@@ -2538,10 +2543,12 @@ button:focus-visible {
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
+    overflow: visible;
+    -webkit-transform-style: preserve-3d;
     transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
-    transform-origin: center bottom;
+    transform-origin: 50% 100%;
   }
 
   .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {

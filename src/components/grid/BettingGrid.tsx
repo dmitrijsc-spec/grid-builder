@@ -23,9 +23,6 @@ import { GRID_SKIN } from './config/gridSkin'
 import type { GridZoneConfig } from './config/gridZones'
 import { normalizeSvgDataUrlForImg, prepareInlineSvgMarkup } from './svgDataUrl'
 
-/** Slightly longer than `--grid-transition` (0.55s) so layer swap runs after tilt finishes. */
-const GRID_TILT_CONTENT_DELAY_MS = 560
-
 /** Mobile WK/Blink often softens SVG-in-<img> when layout width is fractional; snap to device pixel grid. */
 function snapCssPx(cssPx: number): number {
   const dpr = typeof window !== 'undefined' ? Math.max(1, window.devicePixelRatio || 1) : 1
@@ -463,29 +460,6 @@ export function BettingGrid() {
   const usePerspectiveShell = closedMode === 'tilted'
   const perspective = usePerspectiveShell
 
-  /**
-   * Logical grid (globalGridState) drives tilt CSS immediately; artwork / globalVisibility follow
-   * after the tilt transition so the stack does not “pop” mid-rotate (especially on iOS).
-   */
-  const [displayGridState, setDisplayGridState] = useState<'open' | 'closed'>(() => globalGridState)
-  useEffect(() => {
-    if (!perspective) {
-      setDisplayGridState(globalGridState)
-      return
-    }
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    ) {
-      setDisplayGridState(globalGridState)
-      return
-    }
-    const id = window.setTimeout(() => {
-      setDisplayGridState(globalGridState)
-    }, GRID_TILT_CONTENT_DELAY_MS)
-    return () => clearTimeout(id)
-  }, [globalGridState, perspective])
-
   const allowMobileAtlas = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('mobileAtlas') === '1'
     : false
@@ -494,7 +468,7 @@ export function BettingGrid() {
       ? new URLSearchParams(window.location.search).get('iosCanvas')
       : null
   const publishedMobileAtlasSrc =
-    gridPackage.global?.runtimeAtlas?.states?.[displayGridState]?.src
+    gridPackage.global?.runtimeAtlas?.states?.[globalGridState]?.src
     ?? gridPackage.global?.runtimeAtlas?.states?.open?.src
     ?? null
   const useMobileAtlasRendering =
@@ -521,9 +495,9 @@ export function BettingGrid() {
         .slice()
         .sort((a, b) => a.zIndex - b.zIndex)
         .map((layer) => {
-          // Respect globalVisibility — delayed to match tilt so layers do not swap mid-animation.
+          // Respect globalVisibility — mirrors the builder's "Show when Open/Closed" checkboxes
           const globalVisible =
-            displayGridState === 'open'
+            globalGridState === 'open'
               ? (layer.globalVisibility?.open ?? true)
               : (layer.globalVisibility?.closed ?? true)
 
@@ -591,7 +565,6 @@ export function BettingGrid() {
     [
       gridPackage,
       globalGridState,
-      displayGridState,
       hoveredZoneId,
       runtimeFrameWidth,
       runtimeFrameHeight,
@@ -819,7 +792,7 @@ export function BettingGrid() {
       <div className="betting-grid__zones">
         {runtimeZones.map((zone) => {
           const visual: GridVisualState =
-            displayGridState === 'open' && hoveredZoneId === zone.id ? 'hover' : 'default'
+            globalGridState === 'open' && hoveredZoneId === zone.id ? 'hover' : 'default'
           const isHovered = hoveredZoneId === zone.id
           return (
             <BetCell
