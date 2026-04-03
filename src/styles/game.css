@@ -1478,14 +1478,29 @@
   will-change: auto;
 }
 
+/*
+ * Match grid builder: perspective on shell, rotateX on an inner stage only.
+ * Rotating `.betting-grid` itself fought `display:flex` + mobile `width:100%!important` on iOS (layout jumps).
+ */
 .betting-grid-shell[data-perspective='on'] .betting-grid {
+  position: relative;
+  display: block;
+  transform: none;
+  transition: none;
+  transform-style: flat;
+  will-change: auto;
+}
+
+.betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
+  position: absolute;
+  inset: 0;
   transform-style: preserve-3d;
   will-change: transform;
-  /* Vars live on `.betting-grid` (inline) so iOS WebKit transitions transform when open→closed. */
+  /* Vars on this node (inline) — same element that transitions. */
   transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
-  /* Same transform list for open (0deg / scale 1) and closed so transition interpolates smoothly. */
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
     scale(var(--grid-tilt-scale, 1));
+  transform-origin: center bottom;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
@@ -2497,6 +2512,15 @@ button:focus-visible {
   }
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
+    position: relative !important;
+    display: block !important;
+    transform: none !important;
+    transition: none !important;
+    transform-style: flat !important;
+    will-change: auto !important;
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
     transform-style: preserve-3d;
     transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
@@ -2505,6 +2529,15 @@ button:focus-visible {
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
+    position: relative !important;
+    display: block !important;
+    transform: none !important;
+    transition: none !important;
+    transform-style: flat !important;
+    will-change: auto !important;
+  }
+
+  .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
     transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
