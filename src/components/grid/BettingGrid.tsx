@@ -728,8 +728,9 @@ export function BettingGrid() {
       } as CSSProperties)
     : {}
 
-  const gridLayoutStyle: CSSProperties =
-    mobileSnapSize && useMobileLayoutSnap
+  const gridLayoutStyle: CSSProperties = {
+    ...tiltCssVars,
+    ...(mobileSnapSize && useMobileLayoutSnap
       ? {
           minHeight: 0,
           maxHeight: 'none',
@@ -743,7 +744,8 @@ export function BettingGrid() {
           height: 'auto',
           minHeight: 0,
           clipPath: runtimeClipPath,
-        }
+        }),
+  }
 
   const gridBody = (
     <>
@@ -842,15 +844,10 @@ export function BettingGrid() {
       <div
         className="betting-grid"
         data-render-surface={useMobileAtlasRendering ? 'atlas' : 'live'}
+        data-grid-phase={perspective ? globalGridState : undefined}
         style={gridLayoutStyle}
       >
-        {perspective ? (
-          <div className="betting-grid__tilt" style={tiltCssVars}>
-            {gridBody}
-          </div>
-        ) : (
-          gridBody
-        )}
+        {gridBody}
       </div>
     </div>
   )

@@ -1313,6 +1313,11 @@
   perspective-origin: 50% 35%;
 }
 
+/* Bottom-anchored mobile grid: shift vanishing point down vs centered builder preview. */
+.betting-grid-shell[data-grid-layout='mobile'][data-perspective='on'] {
+  perspective-origin: 50% 58%;
+}
+
 .betting-grid {
   position: relative;
   z-index: 2;
@@ -1478,34 +1483,24 @@
   will-change: auto;
 }
 
-/*
- * Match grid builder: perspective on shell, rotateX on an inner stage only.
- * Rotating `.betting-grid` itself fought `display:flex` + mobile `width:100%!important` on iOS (layout jumps).
- */
+/* Match grid builder `.grid-builder__canvas`: same transform list, origin, and closed brightness. */
 .betting-grid-shell[data-perspective='on'] .betting-grid {
-  position: relative;
-  display: block;
-  overflow: visible;
-  transform: none;
-  transition: none;
-  transform-style: flat;
-  will-change: auto;
-}
-
-.betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
   transform-style: preserve-3d;
   -webkit-transform-style: preserve-3d;
   will-change: transform;
-  /* Vars on this node (inline) — same element that transitions. */
-  transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
+  transition:
+    transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)),
+    filter var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1));
   transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
     scale(var(--grid-tilt-scale, 1));
-  transform-origin: 50% 100%;
+  transform-origin: center bottom;
+  filter: brightness(1);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+}
+
+.betting-grid-shell[data-perspective='on'] .betting-grid[data-grid-phase='closed'] {
+  filter: brightness(0.9);
 }
 
 .betting-grid-shell > .betting-grid {
@@ -2480,6 +2475,10 @@ button:focus-visible {
     perspective-origin: 50% 35%;
   }
 
+  .betting-grid-shell[data-grid-layout='mobile'][data-perspective='on'] {
+    perspective-origin: 50% 58%;
+  }
+
   .betting-grid-shell[data-perspective='off'] {
     perspective: none;
   }
@@ -2516,39 +2515,39 @@ button:focus-visible {
 
   .betting-grid-shell[data-perspective='on'] .betting-grid {
     position: relative !important;
-    display: block !important;
-    transform: none !important;
-    transition: none !important;
-    transform-style: flat !important;
-    will-change: auto !important;
-  }
-
-  .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
-    overflow: visible;
-    transform-style: preserve-3d;
-    -webkit-transform-style: preserve-3d;
-    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
+    transform-style: preserve-3d !important;
+    -webkit-transform-style: preserve-3d !important;
+    will-change: transform !important;
+    transition:
+      transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)),
+      filter var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
-    transform-origin: 50% 100%;
+    transform-origin: center bottom !important;
+    filter: brightness(1);
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid[data-grid-phase='closed'] {
+    filter: brightness(0.9) !important;
   }
 
   .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
-    position: relative !important;
-    display: block !important;
-    transform: none !important;
-    transition: none !important;
-    transform-style: flat !important;
-    will-change: auto !important;
-  }
-
-  .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid__tilt {
-    overflow: visible;
-    -webkit-transform-style: preserve-3d;
-    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
+    transform-style: preserve-3d !important;
+    -webkit-transform-style: preserve-3d !important;
+    will-change: transform !important;
+    transition:
+      transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)),
+      filter var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
     transform: translateZ(0) rotateX(var(--grid-tilt-angle, 0deg)) translateY(0)
       scale(var(--grid-tilt-scale, 1)) !important;
-    transform-origin: 50% 100%;
+    transform-origin: center bottom !important;
+    filter: brightness(1);
+  }
+
+  .game-frame-shell[data-mobile-preview='on']
+    .betting-grid-shell[data-perspective='on']
+    .betting-grid[data-grid-phase='closed'] {
+    filter: brightness(0.9) !important;
   }
 
   .main-stage:has(.betting-grid-shell[data-perspective='on']) > .grid-column {
