@@ -4614,6 +4614,43 @@ button:focus-visible {
   }
 }
 
+/*
+ * iOS WebKit: `filter` on the same element as `rotateX` forces a flattened GPU layer — inline SVG
+ * gradients often “wash out” or jump during the tilt. Match vector path: transform-only transition,
+ * no brightness filter, avoid will-change promotion on the tilting root.
+ */
+@supports (-webkit-touch-callout: none) {
+  .betting-grid-shell[data-perspective='on'] .betting-grid {
+    filter: none !important;
+    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
+    will-change: auto !important;
+    -webkit-backface-visibility: visible !important;
+    backface-visibility: visible !important;
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid[data-grid-phase='closed'] {
+    filter: none !important;
+  }
+
+  .game-frame-shell[data-mobile-preview='on'] .betting-grid-shell[data-perspective='on'] .betting-grid {
+    filter: none !important;
+    transition: transform var(--grid-transition, 0.55s cubic-bezier(0.4, 0, 0.2, 1)) !important;
+    will-change: auto !important;
+    -webkit-backface-visibility: visible !important;
+    backface-visibility: visible !important;
+  }
+
+  .game-frame-shell[data-mobile-preview='on']
+    .betting-grid-shell[data-perspective='on']
+    .betting-grid[data-grid-phase='closed'] {
+    filter: none !important;
+  }
+
+  .betting-grid-shell[data-perspective='on'] .betting-grid__asset--svg-inline > svg {
+    shape-rendering: auto !important;
+  }
+}
+
 @keyframes dropdown-in {
   from {
     opacity: 0;
